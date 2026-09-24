@@ -108,3 +108,63 @@ divergence blocks promotion beyond PAPER.
 - the 1,500 / 1,000 / 500 example (no order);
 - shadow mode never submits;
 - database outage: nothing is transmitted.
+
+## Implementation notes (M10)
+
+`src/adaptive_quant/trading/scheduler/`:
+
+| Module | Contents |
+|---|---|
+| `schedule.py` | Steps at minutes before the actual session close. No plan on weekends or holidays; early closes shift automatically; `order_cutoff` = close − `no_new_orders_after_minutes_before_close`. `validate_schedule` requires exactly the nine cycle steps, in order |
+| `cycle.py` | `TradingCycle` for one session (`cyc-<env>-<date>`). Each step's outcome (`done` / `refused` / `failed` / `skipped`) is stored in `cycle_steps` (append-only, migration 0002) |
+| `runner.py` | `Scheduler`: `tick()` runs what is due; `run()` sleeps until the next step, sending start-up and shutdown notices |
+| `data.py` | `CycleData`: store and pipeline in production, injectable for drills and tests |
+| `summary.py` | End-of-day summary |
+
+**What each step does:**
+
+| Step | Action | Refuses when |
+|---|---|---|
+| `health_check` | Database ping, broker account and positions, kill-switch status; stores start-of-cycle account and positions | Broker or database unreachable |
+| `market_data_update` | Refresh bars, then validity and freshness check | Provider failure; stale, missing or invalid data |
+| `indicators` | Point-in-time view at `now` | — |
+| `strategies` | All eligible strategies; signals stored with the step | Any failure or not-ready strategy |
+| `risk` | Ensemble → policy → risk engine; the decision is persisted atomically, along with decision-time reference prices | Risk calculation failure |
+| `portfolio_target` | Pre-trade gate (kill switch, database, broker state, market data, stored risk decision, reconciliation) → preflight report | Any all-blocking failure. Risk-increasing-only failures allow risk-reducing orders |
+| `order_submission` | Checks the cutoff and that the broker says the market is open (**halts**); drops halted instruments; plans and sends **sells**, syncs, **re-plans** and sends buys | After the cutoff (skipped), market not open, planner refusal, database outage |
+| `fill_monitoring` | Syncs working orders | — |
+| `reconciliation` | Resolves unknown orders, reconciles, records performance, sends the end-of-day summary, finishes the cycle | Discrepancy: persisted; blocks the next cycle's risk-increasing orders |
+
+**Fail closed.** A refused or failed step skips every later trading step. Reconciliation still runs if the cycle started with confirmed broker state. Unexpected exceptions are stored in `errors` and notified; they never crash the scheduler.
+
+**Restart.** Every tick re-reads the persisted steps.
+- A restarted process skips finished steps and reuses the stored signals, decision, target and reference prices.
+- It relies on idempotent planning and deterministic client order IDs, so nothing is sent twice.
+- A process that starts after the cutoff places no orders.
+
+**Shadow mode.** It runs the identical pipeline and records `shadow_orders`; `submit_order` is never called. This is asserted with a spy broker whose `submit_order` fails the test.
+
+**Notifications** (`notifications/templates.py`, `email_channel.py`):
+- There is a template for **every** event type; each states the environment, mode and config version, and that results are hypothetical.
+- A missing field is shown as `<missing: …>`, never dropped.
+- SMTP uses STARTTLS; credentials come only from `SMTP_USERNAME` / `SMTP_PASSWORD`.
+- Every delivery attempt is recorded in `notifications_sent`, and a failing channel never stops trading.
+
+**Commands:**
+
+```bash
+aq --env paper trade status            # today's schedule (early close shown) and step states
+aq --env paper trade run --once        # run due steps now and exit (cron-friendly)
+aq --env paper trade run               # long-running scheduler (SIGTERM stops it cleanly)
+aq --env paper trade ack-reconciliation --actor "Name" --reason "what was checked"
+```
+
+`trade run` refuses unless:
+- the mode is paper or shadow;
+- at least one strategy has been promoted **by a person** to lifecycle `paper` or later (the shipped config has none);
+- the database and broker credentials are set.
+
+**Known limitations:**
+- Current quotes default to the last close; there is no intraday quote feed yet.
+- The fill-monitoring partial-fill message reports "?" as the filled quantity.
+- Ensemble weights for a live cycle use the stored history of past cycles' signals, which starts empty (equal weight until `min_history` cycles have run).

@@ -485,6 +485,20 @@ class NotificationSent(Base):
     created_at: Mapped[datetime] = _created()
 
 
+class CycleStep(Base):
+    """A completed (or refused / failed) step of a trading cycle: lets a restart resume."""
+
+    __tablename__ = "cycle_steps"
+    id: Mapped[int] = _id()
+    cycle_id: Mapped[str] = mapped_column(ForeignKey("trading_cycles.cycle_id"), index=True)
+    step: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(16))  # done / refused / failed / skipped
+    detail: Mapped[str] = mapped_column(Text, default="")
+    payload_json: Mapped[Json]
+    at: Mapped[datetime] = mapped_column(TS)
+    created_at: Mapped[datetime] = _created()
+
+
 Index("ix_order_events_at", OrderEvent.at)
 
 #: Tables whose rows can never be updated or deleted (enforced by a trigger).
@@ -510,4 +524,5 @@ APPEND_ONLY = (
     "errors",
     "kill_switch_events",
     "notifications_sent",
+    "cycle_steps",
 )

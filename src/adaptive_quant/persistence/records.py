@@ -184,3 +184,22 @@ class ReconciliationView:
     passed: bool
     differences: Json
     at: datetime
+
+
+@dataclass(frozen=True)
+class CycleView:
+    cycle_id: str
+    session_date: date
+    environment: str
+    mode: str
+    status: str
+    config_version: str
+
+
+@dataclass(frozen=True)
+class StepView:
+    step: str
+    status: str
+    detail: str
+    payload: Json
+    at: datetime

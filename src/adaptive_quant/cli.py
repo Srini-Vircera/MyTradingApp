@@ -19,6 +19,7 @@ from adaptive_quant import (
     cli_db,
     cli_research,
     cli_strategies,
+    cli_trade,
 )
 from adaptive_quant.config.loader import LoadedConfig, load_config
 from adaptive_quant.config.schema import redact
@@ -82,6 +83,7 @@ def build_parser() -> argparse.ArgumentParser:
     cli_backtest.register(sub)
     cli_research.register(sub)
     cli_db.register(sub)
+    cli_trade.register(sub)
     return parser
 
 
@@ -121,6 +123,8 @@ def _dispatch(args: argparse.Namespace, clock: Clock) -> int:
         return cli_research.run(args, loaded, clock)
     if args.command == "db":
         return cli_db.run(args, loaded, secrets, clock)
+    if args.command == "trade":
+        return cli_trade.run(args, loaded, secrets, clock)
     raise AssertionError(f"unhandled command {args.command}")  # pragma: no cover
 
 

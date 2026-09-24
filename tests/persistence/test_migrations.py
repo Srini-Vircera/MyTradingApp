@@ -16,7 +16,7 @@ def test_upgrade_matches_models_and_downgrade_is_clean(empty_db: Database) -> No
     migrate.upgrade(empty_db)
     assert migrate.current_revision(empty_db) == migrate.head_revision()
     assert tables(empty_db) == set(Base.metadata.tables)
-    assert len(tables(empty_db)) == 28
+    assert len(tables(empty_db)) == 29
     assert migrate.schema_drift(empty_db) == []
     migrate.downgrade(empty_db, "base")
     assert tables(empty_db) == set()

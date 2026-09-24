@@ -16,7 +16,30 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-from adaptive_quant.persistence.models import APPEND_ONLY
+# frozen copy: later model changes must never alter what this revision does
+APPEND_ONLY = (
+    "config_versions",
+    "strategy_lifecycle_events",
+    "research_runs",
+    "data_quality_reports",
+    "preflight_reports",
+    "indicator_snapshots",
+    "strategy_signals",
+    "ensemble_decisions",
+    "portfolio_proposals",
+    "risk_decisions",
+    "target_portfolios",
+    "order_events",
+    "executions",
+    "position_snapshots",
+    "account_snapshots",
+    "reconciliation_reports",
+    "shadow_orders",
+    "system_events",
+    "errors",
+    "kill_switch_events",
+    "notifications_sent",
+)
 
 revision = "0001"
 down_revision = None

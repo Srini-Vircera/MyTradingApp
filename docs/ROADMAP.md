@@ -20,8 +20,8 @@ risk are grouped (M7) because they share the target-portfolio contract.
 | 7 | Ensemble + portfolio allocation + risk engine | **done** |
 | 8 | PostgreSQL persistence + audit trail | **done** |
 | 9 | Broker abstraction, Alpaca paper, order planner/manager, reconciliation | **done** |
-| 10 | Scheduler, trading cycle, shadow mode, email notifications | next |
-| 11 | FastAPI | |
+| 10 | Scheduler, trading cycle, shadow mode, email notifications | **done** |
+| 11 | FastAPI | next |
 | 12 | Next.js dashboard | |
 | 13 | Docker deployment, paper-vs-backtest report, AWS documentation | |
 
@@ -192,8 +192,23 @@ docker-compose PostgreSQL; CI workflow; design docs.
 - [x] Reconciliation halts risk-increasing trading on a discrepancy until a human acknowledges it.
 - [ ] **Operator step:** run against a real Alpaca *paper* account (needs keys; not possible in the build environment).
 
-### M10 — Scheduler, shadow mode, notifications
-**Acceptance:** cycle runner with minutes-before-close schedule; tests for weekends, holidays, early closes, halts; restart resumes the same cycle; shadow mode never calls `submit_order` (asserted with a spy broker); email notifier with templated messages for every event type; end-of-day summary.
+### M10 — Scheduler, shadow mode, notifications ✅
+**Deliverables** (see [PAPER_TRADING.md](PAPER_TRADING.md#implementation-notes-m10)):
+- Session schedule and the nine-step `TradingCycle`, with a persisted step log (migration 0002).
+- `Scheduler` loop.
+- Store-backed cycle data.
+- Email channel and templates for every event type.
+- End-of-day summary.
+- `aq trade status | run | ack-reconciliation`.
+
+**Acceptance:**
+- [x] Cycle runner with a minutes-before-close schedule.
+- [x] Tests for weekends, holidays, early closes (13:00), market halts (broker says closed) and halted instruments.
+- [x] A restart resumes the same cycle: finished steps are skipped, the decision is reused, no duplicate orders; a late start after the cutoff places none.
+- [x] Shadow mode never calls `submit_order` (asserted with a spy broker).
+- [x] Email notifier with a templated message for every event type (tested with a fake SMTP server).
+- [x] End-of-day summary (email plus `daily_performance`).
+- [ ] **Operator step:** promote strategies to `paper` (a person, with written evidence), configure the Alpaca paper keys, `DATABASE_URL` and SMTP, then run `aq --env paper trade run`.
 
 ### M11 — API
 **Acceptance:** FastAPI read endpoints for every dashboard page; kill-switch endpoints with confirmation; auth (single-operator token) ; OpenAPI schema; no endpoint can change trading mode.

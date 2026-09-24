@@ -22,12 +22,13 @@ from sqlalchemy.orm import Session
 from adaptive_quant.core.clock import ensure_utc
 from adaptive_quant.core.enums import OrderState
 from adaptive_quant.core.errors import PersistenceError
-from adaptive_quant.core.models import Instrument, OrderRequest
+from adaptive_quant.core.models import Instrument, OrderRequest, TargetPortfolio
 from adaptive_quant.persistence import models as m
 from adaptive_quant.persistence.db import Database
 from adaptive_quant.persistence.records import (
     ConfigRecord,
     CycleRecord,
+    CycleView,
     DataSnapshotRecord,
     DecisionRecord,
     ExecutionRecord,
@@ -36,6 +37,7 @@ from adaptive_quant.persistence.records import (
     OrderUpdate,
     ReconciliationView,
     ResearchRunRecord,
+    StepView,
     StrategyVersionRecord,
 )
 
@@ -243,6 +245,97 @@ class CycleRepository(_Repo):
                     started_at=ensure_utc(rec.started_at),
                 )
             )
+
+    def get(self, cycle_id: str) -> CycleView | None:
+        with self.db.session() as s:
+            c = s.get(m.TradingCycle, cycle_id)
+            if c is None:
+                return None
+            return CycleView(
+                c.cycle_id, c.session_date, c.environment, c.mode, c.status, c.config_version
+            )
+
+    def record_step(
+        self,
+        cycle_id: str,
+        step: str,
+        status: str,
+        at: datetime,
+        detail: str = "",
+        payload: Any = None,
+    ) -> None:
+        if status not in ("done", "refused", "failed", "skipped"):
+            raise ValueError(f"invalid step status {status!r}")
+        with self.db.session() as s:
+            s.add(
+                m.CycleStep(
+                    cycle_id=cycle_id,
+                    step=step,
+                    status=status,
+                    detail=detail,
+                    payload_json=jsonable(payload or {}),
+                    at=ensure_utc(at),
+                )
+            )
+
+    def steps(self, cycle_id: str) -> dict[str, StepView]:
+        """Latest record per step of a cycle."""
+        with self.db.session() as s:
+            rows = s.scalars(
+                select(m.CycleStep).where(m.CycleStep.cycle_id == cycle_id).order_by(m.CycleStep.id)
+            )
+            return {
+                r.step: StepView(r.step, r.status, r.detail, dict(r.payload_json), r.at)
+                for r in rows
+            }
+
+    def load_target(self, decision_id: str) -> TargetPortfolio:
+        with self.db.session() as s:
+            t = s.get(m.TargetPortfolioRow, decision_id)
+            if t is None:
+                raise PersistenceError(f"no target portfolio for decision {decision_id}")
+            return TargetPortfolio(
+                as_of=t.as_of,
+                weights={k: Decimal(v) for k, v in t.weights_json.items()},
+                decision_id=t.decision_id,
+                config_version=t.config_version,
+            )
+
+    def last_band(self, before_cycle: str | None = None) -> str | None:
+        """Drawdown band of the most recent stored risk decision (hysteresis input)."""
+        with self.db.session() as s:
+            q = select(m.RiskDecisionRow.drawdown_band).order_by(
+                m.RiskDecisionRow.created_at.desc()
+            )
+            if before_cycle is not None:
+                q = q.where(m.RiskDecisionRow.cycle_id != before_cycle)
+            return s.scalars(q.limit(1)).first()
+
+    def signal_history(
+        self, strategy_ids: Sequence[str], limit: int
+    ) -> list[tuple[datetime, dict[str, float]]]:
+        """Per completed decision: (data timestamp, {strategy: suggested exposure}), oldest first.
+
+        Only decisions where every requested strategy produced a signal are returned.
+        """
+        ids = list(strategy_ids)
+        with self.db.session() as s:
+            rows = s.execute(
+                select(
+                    m.StrategySignalRow.cycle_id,
+                    m.StrategySignalRow.strategy_id,
+                    m.StrategySignalRow.data_timestamp,
+                    m.StrategySignalRow.suggested_exposure,
+                )
+                .where(m.StrategySignalRow.strategy_id.in_(ids))
+                .order_by(m.StrategySignalRow.data_timestamp, m.StrategySignalRow.id)
+            ).all()
+        by_cycle: dict[str, tuple[datetime, dict[str, float]]] = {}
+        for cycle, sid, ts, exp in rows:
+            entry = by_cycle.setdefault(cycle, (ts, {}))
+            entry[1][sid] = float(exp)
+        complete = [v for v in by_cycle.values() if set(v[1]) == set(ids)]
+        return sorted(complete, key=lambda v: v[0])[-limit:]
 
     def finish(self, cycle_id: str, status: str, at: datetime, detail: str = "") -> None:
         if status not in ("completed", "refused", "failed"):
@@ -676,6 +769,15 @@ class MonitoringRepository(_Repo):
                     at=ensure_utc(at),
                 )
             )
+
+    def equity_history(self, environment: str) -> list[tuple[date, Decimal]]:
+        with self.db.session() as s:
+            rows = s.execute(
+                select(m.DailyPerformance.session_date, m.DailyPerformance.equity)
+                .where(m.DailyPerformance.environment == environment)
+                .order_by(m.DailyPerformance.session_date)
+            ).all()
+            return [(a, b) for a, b in rows]
 
     def upsert_daily_performance(
         self,

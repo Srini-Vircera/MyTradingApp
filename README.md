@@ -24,7 +24,7 @@ Built milestone by milestone — see [docs/ROADMAP.md](docs/ROADMAP.md).
 | Ensemble, allocation policy, independent risk engine (M7) | ✅ done |
 | PostgreSQL audit trail: schema, migrations, repositories, explain query (M8) | ✅ done |
 | Broker (Alpaca paper, simulated), order planner/manager, reconciliation (M9) | ✅ done |
-| Scheduler, trading cycle, notifications (M10) | planned |
+| Scheduler, trading cycle, shadow mode, email notifications (M10) | ✅ done |
 | API, dashboard, deployment (M11–M13) | planned |
 
 Sections below marked *(Milestone N)* describe commands that do not exist yet.
@@ -184,14 +184,26 @@ aq research status                                # evidence and automated lifec
 - **Governance:** software can mark a strategy `validated` (and undo it) in `var/research/governance.jsonl`. It never edits `strategies.yaml` and never promotes to paper, shadow or live.
 - **Details:** [docs/RESEARCH.md](docs/RESEARCH.md).
 
-## 9. Trading workflows *(Milestones 8–13)*
+## 9. Paper and shadow trading
+
+```bash
+aq --env paper trade status        # today's schedule (early closes shown) and cycle state
+aq --env paper trade run --once    # run the steps that are due now
+aq --env paper trade run           # long-running market-aware scheduler
+```
+
+`trade run` refuses unless:
+- a **person** has promoted strategies to lifecycle `paper` in `strategies.yaml`;
+- the Alpaca **paper** keys, `DATABASE_URL` and (optionally) SMTP settings are configured.
+
+Set `trading.mode: shadow` to run the full pipeline without sending any order. See [docs/PAPER_TRADING.md](docs/PAPER_TRADING.md).
+
+## 9b. Later milestones
 
 | Task | Command (planned) | Milestone |
 |---|---|---|
 | Start the API | `aq api` | 11 |
 | Start the dashboard | `cd apps/dashboard && npm run dev` | 12 |
-| Paper trading | `aq --env paper trade run` | 10 |
-| Shadow mode | set `trading.mode: shadow`, then `aq trade run` | 10 |
 
 ## 10. Logs
 

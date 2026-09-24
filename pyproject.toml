@@ -83,6 +83,7 @@ ignore = [
 "src/adaptive_quant/quant/analytics/charts.py" = ["E501"]
 "src/adaptive_quant/quant/analytics/report.py" = ["E501"]
 "src/adaptive_quant/quant/research/report.py" = ["E501"]
+"src/adaptive_quant/notifications/templates.py" = ["E501"]
 # generated migrations and SQL trigger bodies
 "src/adaptive_quant/persistence/migrations/**" = ["E501"]
 
