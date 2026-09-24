@@ -151,7 +151,9 @@ backtest:
     unknown_volume: assume_liquid  # assume_liquid | reject (synthetic bars have no volume)
   allocation:
     long_mode: qqq_then_tqqq       # qqq_then_tqqq | tqqq_only | qqq_only
-    apply_risk_limits: true        # static caps from risk.yaml (full risk engine: M7)
+    apply_risk_limits: true
+    risk_engine: true              # M7 ensemble + policy + risk engine (same code as live)
+    min_abs_exposure: 0.0          # |exposure| below this is held as cash
   report_dir: var/reports
 
 # -----------------------------------------------------------------------------

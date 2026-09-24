@@ -397,3 +397,40 @@ class TestResearchConfig:
         patch_yaml("base.yaml", apply)
         with pytest.raises(ConfigurationError, match=match):
             load_config("development", config_dir=config_dir)
+
+
+class TestRiskEngineConfig:
+    def test_shipped_regime_caps_and_hysteresis(self, config_dir: Path) -> None:
+        s = load_config("development", config_dir=config_dir).settings
+        caps = s.risk.volatility_regimes.max_net_exposure
+        assert caps["extreme"] <= caps["elevated"] <= s.risk.max_net_underlying_exposure
+        assert s.risk.drawdown_hysteresis > 0
+        assert s.backtest.allocation.risk_engine
+
+    def test_regime_caps_must_not_loosen(self, config_dir: Path, patch_yaml: PatchYaml) -> None:
+        patch_yaml(
+            "risk.yaml",
+            lambda d: d["risk"]["volatility_regimes"].update(
+                {"max_net_exposure": {"elevated": 1.0, "extreme": 1.5}}
+            ),
+        )
+        with pytest.raises(ConfigurationError, match="must not loosen"):
+            load_config("development", config_dir=config_dir)
+
+    def test_unknown_regime_rejected(self, config_dir: Path, patch_yaml: PatchYaml) -> None:
+        patch_yaml(
+            "risk.yaml",
+            lambda d: d["risk"]["volatility_regimes"].update({"max_net_exposure": {"panic": 0.1}}),
+        )
+        with pytest.raises(ConfigurationError, match="unknown volatility regimes"):
+            load_config("development", config_dir=config_dir)
+
+    def test_ensemble_history_consistency(self, config_dir: Path, patch_yaml: PatchYaml) -> None:
+        patch_yaml(
+            "strategies.yaml",
+            lambda d: d["strategies"]["ensemble"].update(
+                {"min_history": 500, "lookback_sessions": 252}
+            ),
+        )
+        with pytest.raises(ConfigurationError, match="min_history"):
+            load_config("development", config_dir=config_dir)

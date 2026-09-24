@@ -20,7 +20,7 @@ from adaptive_quant.core.errors import ConfigurationError, DataQualityError
 from adaptive_quant.quant.analytics.report import write_report
 from adaptive_quant.quant.backtest.data import BacktestData, load_backtest_data
 from adaptive_quant.quant.backtest.execution import ExecutionTiming
-from adaptive_quant.quant.backtest.runner import run_backtest
+from adaptive_quant.quant.backtest.runner import risk_warmup_bars, run_backtest
 from adaptive_quant.quant.data.calendar import TradingCalendar, nyse_calendar
 from adaptive_quant.quant.data.factory import build_store
 from adaptive_quant.quant.strategies.base import Strategy
@@ -89,7 +89,9 @@ def run(args: argparse.Namespace, loaded: LoadedConfig, clock: Clock) -> int:
         synthetic_symbols=settings.data.synthetic.products.keys(),
     )
     calendar = nyse_calendar()
-    start, end = default_range(data, strategies, calendar, args.start, args.end)
+    start, end = default_range(
+        data, strategies, calendar, args.start, args.end, risk_warmup_bars(settings)
+    )
     analysed = run_backtest(loaded, strategies, data, calendar, start, end)
     analysed.notes[:0] = overrides
     stamp = f"{clock.now().astimezone(MARKET_TZ):%Y%m%d-%H%M%S}"
@@ -155,6 +157,7 @@ def default_range(
     calendar: TradingCalendar,
     start: date | None,
     end: date | None,
+    min_history_bars: int = 0,
 ) -> tuple[date, date]:
     tradeable = [pd.DatetimeIndex(data.frames[s].index) for s in TRADEABLE]
     # the first decision needs a prior known close of every instrument (sizing prices)
@@ -168,6 +171,13 @@ def default_range(
                 f"{s.strategy_id} needs {s.warmup_bars} bars; only {len(idx)} stored"
             )
         first_ready = max(first_ready, idx[s.warmup_bars])  # warm-up complete *before* this session
+    if min_history_bars:
+        underlying = pd.DatetimeIndex(data.frames["QQQ"].index)
+        if len(underlying) <= min_history_bars:
+            raise DataQualityError(
+                f"the risk engine needs {min_history_bars} QQQ bars; only {len(underlying)} stored"
+            )
+        first_ready = max(first_ready, underlying[min_history_bars])
     auto_start = first_ready.tz_convert(MARKET_TZ).date()
     auto_end = common_last.tz_convert(MARKET_TZ).date()
     s_, e_ = start or auto_start, end or auto_end

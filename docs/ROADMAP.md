@@ -17,8 +17,8 @@ risk are grouped (M7) because they share the target-portfolio contract.
 | 4 | Strategy interface + candidate catalogue | **done** |
 | 5 | Backtesting engine + performance analytics + reports | **done** |
 | 6 | Research robustness: sensitivity, walk-forward, Monte Carlo, DSR/PBO, ranking, governance registry | **done** |
-| 7 | Ensemble + portfolio allocation + risk engine | next |
-| 8 | PostgreSQL persistence + audit trail | |
+| 7 | Ensemble + portfolio allocation + risk engine | **done** |
+| 8 | PostgreSQL persistence + audit trail | next |
 | 9 | Broker abstraction, Alpaca paper, order planner/manager, reconciliation | |
 | 10 | Scheduler, trading cycle, shadow mode, email notifications | |
 | 11 | FastAPI | |
@@ -144,8 +144,22 @@ docker-compose PostgreSQL; CI workflow; design docs.
 - [x] Governance: software never targets beyond `validated` (tested for every state) and never edits `strategies.yaml`.
 - [ ] **Operator step:** run `aq research run` on validated real data (after the M2/M5 calibration steps) and review the evidence. No real-data research has been performed in the build environment.
 
-### M7 — Ensemble, portfolio, risk
-**Acceptance:** equal/fixed/risk-adjusted/walk-forward weighting; correlation clustering and family caps; score→allocation policy; risk engine applying every rule in RISK_MANAGEMENT.md with an adjustment record per change; property tests: output never violates any configured limit for random inputs; failure inside any rule ⇒ refusal.
+### M7 — Ensemble, portfolio, risk ✅
+**Deliverables** (see [RISK_MANAGEMENT.md](RISK_MANAGEMENT.md#implementation-notes-m7)):
+- `quant/ensemble`: point-in-time shadow returns, four weighting methods, correlation clustering, family caps.
+- `quant/portfolio`: the allocation policy and the `PortfolioManager` decision chain.
+- `quant/risk`: estimators and the 8-step risk engine, with `RiskDecision` / `RiskAdjustment` records.
+- `RiskEngineCheck` in the pre-trade gate.
+- Backtester and research integration, the default (`backtest.allocation.risk_engine`).
+- Config: ensemble parameters, `drawdown_hysteresis`, per-regime exposure caps.
+
+**Acceptance:**
+- [x] Equal, fixed, risk-adjusted and walk-forward weighting; correlation clustering and family caps.
+- [x] Score → allocation policy (with a dead band).
+- [x] A risk engine applying every rule in RISK_MANAGEMENT.md, with an adjustment record per change.
+- [x] Property tests: output never violates any configured limit for random inputs (3,000 cases in CI; 30,000 run once).
+- [x] A failure inside any rule, or a failed verification, ⇒ refusal. In backtests, a refused decision places no orders.
+- [x] The backtester and research use the same chain. Future-poisoning tests still hold with the risk engine on.
 
 ### M8 — Persistence
 **Acceptance:** SQLAlchemy models + Alembic migrations for DATABASE.md; repositories with integration tests against real PostgreSQL (docker); "explain decision" query returns the full chain for a cycle; DB-down ⇒ order intents cannot be created (tested).

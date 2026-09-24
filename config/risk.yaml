@@ -35,9 +35,13 @@ risk:
 
   volatility_regimes:                # percentile of trailing realised volatility
     lookback_days: 252
+    vol_window: 20
     low_below_pct: 0.25
     elevated_above_pct: 0.75
     extreme_above_pct: 0.95
+    max_net_exposure:                # optional extra cap on |net exposure| per regime
+      elevated: 1.5
+      extreme: 0.75
 
   # Drawdown from peak equity -> maximum net underlying exposure.
   # Caps must never loosen as drawdown deepens; the deepest band must block
@@ -47,3 +51,4 @@ risk:
     - {name: caution,   threshold: 0.10, max_net_exposure: 1.5}
     - {name: defensive, threshold: 0.20, max_net_exposure: 0.75}
     - {name: emergency, threshold: 0.30, max_net_exposure: 0.0, block_risk_increasing: true}
+  drawdown_hysteresis: 0.05          # leave a deeper band only after recovering 5% past it

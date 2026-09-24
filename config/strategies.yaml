@@ -28,6 +28,11 @@ strategies:
     fixed_weights: {}
     max_family_weight: 0.40      # no single family may dominate the ensemble
     max_pairwise_correlation: 0.85
+    lookback_sessions: 252       # shadow-return history for clustering / weighting
+    min_history: 63              # below this, weighting falls back to equal
+    vol_window: 63               # risk_adjusted: inverse volatility window
+    refit_sessions: 21           # walk_forward: refit cadence (past data only)
+    shrinkage: 0.5               # walk_forward: shrink fitted weights towards equal
 
   strategies:
     # ------------------------------------------------------------ long-term trend

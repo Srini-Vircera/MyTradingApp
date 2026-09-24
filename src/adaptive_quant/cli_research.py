@@ -21,7 +21,7 @@ from adaptive_quant.core.enums import TradingMode
 from adaptive_quant.core.errors import ConfigurationError, StrategyError
 from adaptive_quant.governance.research import GovernanceLedger
 from adaptive_quant.quant.backtest.data import load_backtest_data
-from adaptive_quant.quant.backtest.runner import engine_settings
+from adaptive_quant.quant.backtest.runner import engine_settings, risk_warmup_bars
 from adaptive_quant.quant.data.calendar import nyse_calendar
 from adaptive_quant.quant.data.factory import build_store
 from adaptive_quant.quant.research.pipeline import research_candidates, run_research
@@ -123,6 +123,7 @@ def _run(args: argparse.Namespace, loaded: LoadedConfig, clock: Clock) -> int:
         calendar,
         args.start,
         args.end,
+        risk_warmup_bars(s),
     )
     ctx = TrialContext(
         frames=data.frames,

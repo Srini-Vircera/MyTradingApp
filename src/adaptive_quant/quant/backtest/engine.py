@@ -26,6 +26,7 @@ The engine is deterministic: no randomness, stable iteration order.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -33,7 +34,7 @@ from decimal import ROUND_DOWN, Decimal
 
 import pandas as pd
 
-from adaptive_quant.config.schema import BacktestConfig, RiskConfig
+from adaptive_quant.config.schema import BacktestConfig, EnsembleConfig, RiskConfig
 from adaptive_quant.core.enums import OrderSide
 from adaptive_quant.core.errors import AQError, DataQualityError
 from adaptive_quant.core.models import Instrument, StrategySignal
@@ -50,8 +51,15 @@ from adaptive_quant.quant.backtest.execution import (
 from adaptive_quant.quant.backtest.portfolio import Fill, Portfolio
 from adaptive_quant.quant.data.bars import require_canonical_sorted
 from adaptive_quant.quant.data.calendar import Session, TradingCalendar
+from adaptive_quant.quant.ensemble.engine import EnsembleEngine, EnsembleScore, Member
+from adaptive_quant.quant.ensemble.shadow import ShadowBook
+from adaptive_quant.quant.portfolio.manager import PortfolioDecision, PortfolioManager
+from adaptive_quant.quant.portfolio.policy import AllocationPolicy
+from adaptive_quant.quant.risk.engine import RiskEngine
+from adaptive_quant.quant.risk.models import RiskCalculationError, RiskContext, RiskDecision
 from adaptive_quant.quant.strategies.base import PrecomputedIndicators, Strategy
 
+UNDERLYING = "QQQ"  # risk estimates and shadow returns use the unlevered underlying
 WHOLE_SHARE = Decimal(1)
 FRACTIONAL_STEP = Decimal("0.000001")
 
@@ -66,6 +74,7 @@ class EngineSettings:
     rebalance_threshold: float
     allow_fractional: bool
     risk_limits: RiskConfig | None
+    ensemble: EnsembleConfig | None = None  # M7 decision chain (default config if None)
 
 
 @dataclass
@@ -90,6 +99,9 @@ class Decision:
     net_exposure: float
     allocation: Allocation
     order_ids: tuple[int, ...]
+    ensemble: EnsembleScore | None = None
+    risk: RiskDecision | None = None
+    refused: str | None = None  # risk engine failure: no orders this decision (fail closed)
 
 
 @dataclass(frozen=True)
@@ -149,12 +161,39 @@ class BacktestEngine:
             settings.risk_limits if self.cfg.allocation.apply_risk_limits else None,
         )
         self.tradeable = self.allocator.symbols
+        self.manager: PortfolioManager | None = None
+        a = self.cfg.allocation
+        if settings.risk_limits is not None and a.apply_risk_limits and a.risk_engine:
+            self.manager = PortfolioManager(
+                EnsembleEngine(
+                    [Member(s.strategy_id, s.family) for s in self.strategies],
+                    settings.ensemble or EnsembleConfig(),
+                ),
+                AllocationPolicy(a.long_mode, a.min_abs_exposure),
+                RiskEngine(settings.risk_limits, instruments),
+            )
+        self.shadow = ShadowBook([s.strategy_id for s in self.strategies])
+        underlying = (
+            self.frames[UNDERLYING]["close"].astype(float) if UNDERLYING in self.frames else None
+        )
+        self._underlying_close = underlying
+        self._underlying_returns = None if underlying is None else underlying.pct_change()
+        self._marks: list[float] = []
+        self._band: str | None = None
         self.costs = CostModel(self.cfg.costs)
         self.synthetic = dict(synthetic or {})
         self.lot = FRACTIONAL_STEP if settings.allow_fractional else WHOLE_SHARE
 
     # ------------------------------------------------------------ run
+    @property
+    def risk_warmup_bars(self) -> int:
+        """Underlying bars the risk engine needs before the first decision (0 without it)."""
+        return 0 if self.manager is None else self.manager.risk.required_history + 1
+
     def run(self, start: date, end: date) -> BacktestResult:
+        self._marks = []
+        self._band = None
+        self.shadow = ShadowBook([s.strategy_id for s in self.strategies])
         sessions = self.calendar.sessions_in_range(start, end)
         if len(sessions) < 2:
             raise DataQualityError(f"backtest range {start}..{end} has fewer than 2 sessions")
@@ -193,6 +232,7 @@ class BacktestEngine:
                 if rate > 0:
                     portfolio.accrue_interest(portfolio.cash * rate * days / Decimal(365))
             rows.append(self._mark(i, session, px, portfolio, day_fills_start))
+            self._marks.append(float(rows[-1]["equity"]))  # type: ignore[arg-type]
             if self.timing in (ExecutionTiming.NEXT_OPEN, ExecutionTiming.NEXT_CLOSE):
                 decide(i, sch.decision_time, i + sch.fill_offset, sch.fill_point)
 
@@ -211,6 +251,12 @@ class BacktestEngine:
             )
         if daily["synthetic"].any():
             warnings.append("results include SYNTHETIC price history - reported separately")
+        refused = [d for d in decisions if d.refused]
+        if refused:
+            warnings.append(
+                f"risk engine refused {len(refused)} decision(s) (no orders placed); first: "
+                f"{refused[0].session}: {refused[0].refused}"
+            )
         return BacktestResult(
             daily=daily,
             portfolio=portfolio,
@@ -278,15 +324,44 @@ class BacktestEngine:
         data_ts = max(sig.data_timestamp for sig in signals)
         if data_ts > decision_time:  # defence in depth (StrategySignal also enforces it)
             raise LookAheadError(f"signal data {data_ts} after decision {decision_time}")
-        net = sum(sig.suggested_exposure for sig in signals) / len(signals)
-        allocation = self.allocator.allocate(net)
-
         known = {sym: self._known_close(sym, decision_time) for sym in self.tradeable}
         prices = {sym: p for sym, (p, _) in known.items()}
         for sym, (_, ts) in known.items():
             if ts > decision_time:
                 raise LookAheadError(f"{sym} sizing price from {ts} after decision {decision_time}")
         equity = portfolio.equity(prices)
+        ens: EnsembleScore | None = None
+        risk: RiskDecision | None = None
+        if self.manager is None:
+            net = sum(sig.suggested_exposure for sig in signals) / len(signals)
+            allocation = self.allocator.allocate(net)
+        else:
+            try:
+                chain = self._decide_chain(
+                    signals, data_ts, decision_time, prices, equity, portfolio, pending
+                )
+            except RiskCalculationError as exc:
+                return Decision(
+                    decision_time=decision_time,
+                    data_timestamp=data_ts,
+                    session=sessions[i].date,
+                    signals=signals,
+                    net_exposure=math.nan,
+                    allocation=Allocation(math.nan, {}, (f"REFUSED: {exc}",)),
+                    order_ids=(),
+                    refused=str(exc),
+                )
+            ens, risk = chain.ensemble, chain.risk
+            net = ens.exposure
+            self._band = risk.band
+            notes = [
+                f"band {risk.band} (drawdown {risk.drawdown:.1%})",
+                f"vol scale {risk.vol_scale:.3f}",
+                *(f"flag: {f}" for f in risk.flags),
+                *ens.weights.adjustments,
+                *(str(a) for a in risk.adjustments),
+            ]
+            allocation = Allocation(net, dict(risk.weights), tuple(notes))
         investable = equity * (1 - to_decimal(self.cfg.sizing_cash_buffer))
         threshold = to_decimal(self.settings.rebalance_threshold)
         order_ids: list[int] = []
@@ -332,7 +407,56 @@ class BacktestEngine:
             net_exposure=net,
             allocation=allocation,
             order_ids=tuple(order_ids),
+            ensemble=ens,
+            risk=risk,
         )
+
+    def _decide_chain(
+        self,
+        signals: tuple[StrategySignal, ...],
+        data_ts: datetime,
+        decision_time: datetime,
+        prices: dict[str, Decimal],
+        equity: Decimal,
+        portfolio: Portfolio,
+        pending: list[Order],
+    ) -> PortfolioDecision:
+        """Ensemble -> policy -> risk engine, with a strictly point-in-time context."""
+        if (
+            self.manager is None
+            or self._underlying_close is None
+            or self._underlying_returns is None
+        ):
+            raise RiskCalculationError(f"risk engine needs {UNDERLYING} history")
+        closes, rets = self._underlying_close, self._underlying_returns
+        n = int(closes.index.searchsorted(pd.Timestamp(decision_time), side="right"))
+        if n and closes.index[n - 1] > pd.Timestamp(decision_time):  # pragma: no cover - defensive
+            raise LookAheadError("underlying history beyond the decision time")
+        self.shadow.record(data_ts, {s.strategy_name: s.suggested_exposure for s in signals})
+        eq = float(equity)
+        current: dict[str, float] = {}
+        for sym in self.tradeable:
+            qty = portfolio.quantity(sym) + sum(
+                (
+                    o.quantity if o.side is OrderSide.BUY else -o.quantity
+                    for o in pending
+                    if o.symbol == sym
+                ),
+                Decimal(0),
+            )
+            current[sym] = max(float(qty * prices[sym]) / eq, 0.0) if eq > 0 else 0.0
+        initial = float(self.cfg.initial_capital)
+        ctx = RiskContext(
+            as_of=decision_time,
+            equity=eq,
+            peak_equity=max([initial, eq, *self._marks]),
+            previous_equity=self._marks[-2] if len(self._marks) >= 2 else initial,
+            current_weights=current,
+            underlying_returns=rets.iloc[1:n].to_numpy(dtype=float),
+            kill_switch_engaged=False,
+            previous_band=self._band,
+        )
+        return self.manager.decide(signals, self.shadow.returns(closes, decision_time), ctx)
 
     # ------------------------------------------------------------ fills
     def _fill_due(

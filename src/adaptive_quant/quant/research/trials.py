@@ -90,6 +90,7 @@ class TrialContext:
                 "threshold": s.rebalance_threshold,
                 "fractional": s.allow_fractional,
                 "risk": None if s.risk_limits is None else s.risk_limits.model_dump(mode="json"),
+                "ensemble": None if s.ensemble is None else s.ensemble.model_dump(mode="json"),
             },
             sort_keys=True,
         )

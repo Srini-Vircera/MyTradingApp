@@ -52,6 +52,9 @@ BACKTEST = (
     sorted((SRC / "quant" / "backtest").rglob("*.py"))
     + sorted((SRC / "quant" / "analytics").rglob("*.py"))
     + sorted((SRC / "quant" / "research").rglob("*.py"))
+    + sorted((SRC / "quant" / "risk").rglob("*.py"))
+    + sorted((SRC / "quant" / "ensemble").rglob("*.py"))
+    + sorted((SRC / "quant" / "portfolio").rglob("*.py"))
     + [SRC / "governance" / "research.py", SRC / "governance" / "lifecycle.py"]
 )
 

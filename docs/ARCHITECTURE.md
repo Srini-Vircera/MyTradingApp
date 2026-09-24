@@ -99,9 +99,9 @@ MyTradingApp/                      (the repo; the platform is called "adaptive-q
 │   │   ├── backtest/              engine, timing, costs, Decimal ledger, allocation  [M5]
 │   │   ├── analytics/             metrics, SVG charts, HTML report + exports         [M5]
 │   │   ├── research/              trials+registry, robustness, walk-forward, Monte Carlo, DSR/PBO/RC/FDR, scorecard  [M6]
-│   │   ├── ensemble/              signal combination, correlation control           [M7]
-│   │   ├── portfolio/             score → weights, rebalance bands                   [M7]
-│   │   └── risk/                  independent risk engine                            [M7]
+│   │   ├── ensemble/              shadow returns, weighting, clustering, family caps [M7]
+│   │   ├── portfolio/             allocation policy, PortfolioManager decision chain [M7]
+│   │   └── risk/                  estimators, 8-step risk engine, decisions          [M7]
 │   ├── trading/
 │   │   ├── safety/                kill switch, pre-trade refusal gate                [M1]
 │   │   ├── orders/                state machine [M1], order planner & OMS [M9]
@@ -225,20 +225,28 @@ def proposed_transition(record, current, at) -> LifecycleTransition | None: ... 
 def run_research(versions, ctx, cfg, registry, ledger, *, now, config_version) -> ResearchResult: ...
 ```
 
-Specified here, implemented in later milestones:
+Implemented in M7 (`quant/ensemble`, `quant/portfolio`, `quant/risk`):
 
 ```python
-# quant/ensemble + portfolio + risk (M7) ----------------------------------------
 class EnsembleEngine:
+    def weights(self, shadow_returns: np.ndarray) -> StrategyWeights: ...   # point-in-time
     def combine(self, signals: Sequence[StrategySignal], weights: StrategyWeights) -> EnsembleScore: ...
 
-class AllocationPolicy(Protocol):
-    def allocate(self, score: EnsembleScore, regime: RegimeState) -> ProposedPortfolio: ...
+class AllocationPolicy:
+    def propose(self, exposure: float, as_of: datetime) -> ProposedPortfolio: ...
 
 class RiskEngine:
     def evaluate(self, proposal: ProposedPortfolio, ctx: RiskContext) -> RiskDecision: ...
-    # RiskDecision = approved TargetPortfolio + list[RiskAdjustment(rule, before, after, why)]
+    # RiskDecision: approved weights + RiskAdjustment(rule, before, after, reason) per change;
+    # raises RiskCalculationError (=> refuse) on any failure. .to_target() -> TargetPortfolio
 
+class PortfolioManager:
+    def decide(self, signals, shadow_returns, ctx) -> PortfolioDecision: ...
+```
+
+Specified here, implemented in later milestones:
+
+```python
 # trading (M9) ------------------------------------------------------------------
 class OrderPlanner:
     def plan(self, target: TargetPortfolio, account: AccountSnapshot,

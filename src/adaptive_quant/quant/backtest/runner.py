@@ -17,6 +17,7 @@ from adaptive_quant.quant.backtest.benchmarks import Benchmark, benchmark_curves
 from adaptive_quant.quant.backtest.data import BacktestData
 from adaptive_quant.quant.backtest.engine import BacktestEngine, BacktestResult, EngineSettings
 from adaptive_quant.quant.data.calendar import TradingCalendar
+from adaptive_quant.quant.risk.estimators import required_history
 from adaptive_quant.quant.strategies.base import Strategy
 
 Metrics = dict[str, float | int | None]
@@ -67,7 +68,17 @@ def engine_settings(s: Settings) -> EngineSettings:
         rebalance_threshold=s.trading.rebalance_threshold_weight,
         allow_fractional=s.trading.allow_fractional_shares,
         risk_limits=s.risk,
+        ensemble=s.strategies.ensemble,
     )
+
+
+def risk_warmup_bars(s: Settings) -> int:
+    """Underlying bars needed before the first decision when the M7 risk engine is active."""
+    a = s.backtest.allocation
+    if not (a.apply_risk_limits and a.risk_engine):
+        return 0
+    vt = s.risk.volatility_target
+    return required_history(vt.enabled, vt.lookback_days, s.risk.volatility_regimes) + 1
 
 
 def analyse(
@@ -120,8 +131,7 @@ def analyse(
         "execution": result.execution.value,
         "execution_delay_bars": str(s.backtest.execution_delay_bars),
         "strategies": ", ".join(f"{k} ({v})" for k, v in result.strategy_versions.items()),
-        "allocation": f"{s.backtest.allocation.long_mode}; static risk caps "
-        f"{'on' if s.backtest.allocation.apply_risk_limits else 'off'} (full risk engine: M7)",
+        "allocation": _allocation_text(loaded),
         "costs": _cost_text(loaded),
         "period": f"{index[0]:%Y-%m-%d} .. {index[-1]:%Y-%m-%d} ({len(index)} sessions)",
         "initial_capital": f"{p.initial_cash:,.2f}",
@@ -143,6 +153,20 @@ def analyse(
         metadata=metadata,
         notes=[*(notes or []), *bench_notes, *result.warnings],
     )
+
+
+def _allocation_text(loaded: LoadedConfig) -> str:
+    s = loaded.settings
+    a = s.backtest.allocation
+    if a.apply_risk_limits and a.risk_engine:
+        return (
+            f"M7 decision chain: ensemble ({s.strategies.ensemble.method}) -> policy "
+            f"({a.long_mode}) -> risk engine (vol target, drawdown bands, regime caps, "
+            "exposure caps, turnover)"
+        )
+    if a.apply_risk_limits:
+        return f"{a.long_mode}; interim static caps only (risk_engine: false)"
+    return f"{a.long_mode}; NO risk limits"
 
 
 def _cost_text(loaded: LoadedConfig) -> str:

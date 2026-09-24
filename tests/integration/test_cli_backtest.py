@@ -107,7 +107,7 @@ def test_synthetic_extended_backtest_is_labelled(
     text = capsys.readouterr().out
     assert "Includes SYNTHETIC price history" in text
     assert "use_synthetic_history=True" in text  # override recorded
-    assert "period 2008-" in text
+    assert "period 2009-" in text  # 2008 data minus the risk engine's 272-bar warm-up
     page = (out / "report.html").read_text()
     assert "SYNTHETIC data period only" in page
     assert "Real data only" in page

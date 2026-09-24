@@ -296,14 +296,26 @@ class VolatilityRegimeConfig(Section):
     """Percentile boundaries (of trailing realised volatility) between regimes."""
 
     lookback_days: int = Field(default=252, ge=60)
+    vol_window: int = Field(default=20, ge=5, le=252)
     low_below_pct: Fraction = 0.25
     elevated_above_pct: Fraction = 0.75
     extreme_above_pct: Fraction = 0.95
+    #: optional cap on |net underlying exposure| per regime (low/normal/elevated/extreme)
+    max_net_exposure: dict[str, Annotated[float, Field(ge=0.0, le=3.0)]] = Field(
+        default_factory=dict
+    )
 
     @model_validator(mode="after")
     def _check(self) -> Self:
         if not self.low_below_pct < self.elevated_above_pct < self.extreme_above_pct:
             raise ValueError("volatility regime percentiles must be strictly increasing")
+        unknown = set(self.max_net_exposure) - {"low", "normal", "elevated", "extreme"}
+        if unknown:
+            raise ValueError(f"unknown volatility regimes: {sorted(unknown)}")
+        order = [self.max_net_exposure.get(r) for r in ("normal", "elevated", "extreme")]
+        caps = [c for c in order if c is not None]
+        if any(b > a for a, b in pairwise(caps)):
+            raise ValueError("regime exposure caps must not loosen as volatility rises")
         return self
 
 
@@ -322,6 +334,8 @@ class RiskConfig(Section):
     volatility_target: VolatilityTargetConfig = VolatilityTargetConfig()
     volatility_regimes: VolatilityRegimeConfig = VolatilityRegimeConfig()
     drawdown_bands: list[DrawdownBand] = Field(min_length=1)
+    #: to leave a deeper band, drawdown must recover this far below its threshold
+    drawdown_hysteresis: Annotated[float, Field(ge=0.0, le=0.5)] = 0.0
 
     @model_validator(mode="after")
     def _check(self) -> Self:
@@ -411,6 +425,18 @@ class EnsembleConfig(Section):
     fixed_weights: dict[str, Annotated[float, Field(ge=0.0)]] = Field(default_factory=dict)
     max_family_weight: Fraction = 0.4
     max_pairwise_correlation: Annotated[float, Field(ge=-1.0, le=1.0)] = 0.85
+    #: shadow-return history (sessions) used by correlation clustering and weighting
+    lookback_sessions: int = Field(default=252, ge=20, le=2520)
+    min_history: int = Field(default=63, ge=10, le=2520)
+    vol_window: int = Field(default=63, ge=10, le=1260)
+    refit_sessions: int = Field(default=21, ge=1, le=252)
+    shrinkage: Fraction = 0.5  # walk_forward weights are shrunk this far towards equal
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.min_history > self.lookback_sessions:
+            raise ValueError("ensemble.min_history must be <= lookback_sessions")
+        return self
 
 
 class StrategiesConfig(Section):
@@ -459,10 +485,18 @@ class CostConfig(Section):
 
 
 class AllocationConfig(Section):
-    """Interim exposure -> instrument mapping used until the M7 ensemble/risk engine."""
+    """Exposure -> instrument mapping and which risk layer the backtest applies.
+
+    ``risk_engine: true`` (default) runs the M7 ensemble, allocation policy and
+    risk engine - the same code live trading uses. ``false`` keeps the M5 interim
+    static caps (for comparison only). ``apply_risk_limits: false`` disables risk
+    limits entirely (engine unit tests only).
+    """
 
     long_mode: str = Field(default="qqq_then_tqqq", pattern="^(qqq_then_tqqq|tqqq_only|qqq_only)$")
     apply_risk_limits: bool = True
+    risk_engine: bool = True
+    min_abs_exposure: Annotated[float, Field(ge=0.0, le=0.5)] = 0.0  # dead band -> cash
 
 
 class BacktestConfig(Section):

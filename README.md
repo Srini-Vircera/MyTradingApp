@@ -21,7 +21,8 @@ Built milestone by milestone — see [docs/ROADMAP.md](docs/ROADMAP.md).
 | Strategies: 20 candidates + 2 benchmarks, governance, research signals (M4) | ✅ done |
 | Backtesting: point-in-time engine, costs, exact accounting, metrics, HTML report (M5) | ✅ done |
 | Research robustness: sweeps, walk-forward, Monte Carlo, DSR/PBO/Reality Check/FDR, scorecard, trial registry (M6) | ✅ done |
-| Ensemble, risk engine, persistence, broker/OMS, scheduler (M7–M10) | planned |
+| Ensemble, allocation policy, independent risk engine (M7) | ✅ done |
+| Persistence, broker/OMS, scheduler (M8–M10) | planned |
 | API, dashboard, deployment (M11–M13) | planned |
 
 Sections below marked *(Milestone N)* describe commands that do not exist yet.
@@ -173,7 +174,7 @@ aq research status                                # evidence and automated lifec
 - **Governance:** software can mark a strategy `validated` (and undo it) in `var/research/governance.jsonl`. It never edits `strategies.yaml` and never promotes to paper, shadow or live.
 - **Details:** [docs/RESEARCH.md](docs/RESEARCH.md).
 
-## 9. Trading workflows *(Milestones 7–13)*
+## 9. Trading workflows *(Milestones 8–13)*
 
 | Task | Command (planned) | Milestone |
 |---|---|---|
@@ -204,7 +205,7 @@ make validate    # validate every shipped environment
 ## Project layout
 
 ```
-src/adaptive_quant/   core, config, observability, governance, notifications, quant/{data,indicators,strategies,backtest,analytics,research}, trading/…
+src/adaptive_quant/   core, config, observability, governance, notifications, quant/{data,indicators,strategies,backtest,analytics,research,ensemble,portfolio,risk}, trading/…
 config/               YAML configuration
 tests/                unit / integration / regression
 docs/                 design and operating documentation

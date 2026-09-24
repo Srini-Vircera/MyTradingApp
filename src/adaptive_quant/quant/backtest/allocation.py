@@ -1,10 +1,10 @@
 """Interim allocation: net underlying exposure -> instrument weights.
 
-**This is not the Milestone 7 ensemble or risk engine.** It exists so single
-strategies (or a naive equal-weight average) can be backtested now. It applies
-only the *static* caps from ``risk.yaml`` (net/inverse exposure, per-position,
-leveraged-ETF weight, gross exposure, minimum cash). Volatility targeting,
-drawdown bands, turnover and daily-loss limits arrive with the M7 risk engine.
+**Superseded by the M7 decision chain** (``quant/portfolio``, ``quant/risk``),
+which backtests use by default (``backtest.allocation.risk_engine``). This
+allocator remains for comparison runs and engine unit tests: it applies only
+the *static* caps from ``risk.yaml`` (net/inverse exposure, per-position,
+leveraged-ETF weight, gross exposure, minimum cash).
 
 Mapping of a net exposure ``E`` (QQQ-equivalent multiple of equity):
 
@@ -24,6 +24,7 @@ from decimal import Decimal
 from adaptive_quant.config.schema import RiskConfig
 from adaptive_quant.core.models import Instrument
 from adaptive_quant.core.money import quantize_weight, to_decimal
+from adaptive_quant.quant.portfolio.policy import exposure_to_weights
 
 LONG_1X, LONG_3X, SHORT_3X = "QQQ", "TQQQ", "SQQQ"
 
@@ -85,19 +86,7 @@ class ExposureAllocator:
         return Allocation(net_exposure, weights, tuple(adjustments))
 
     def _map(self, e: float) -> dict[str, float]:
-        w = {LONG_1X: 0.0, LONG_3X: 0.0, SHORT_3X: 0.0}
-        if e < 0:
-            w[SHORT_3X] = min(1.0, -e / 3.0)
-        elif self.long_mode == "qqq_only":
-            w[LONG_1X] = min(e, 1.0)
-        elif self.long_mode == "tqqq_only":
-            w[LONG_3X] = min(e / 3.0, 1.0)
-        elif e <= 1.0:
-            w[LONG_1X] = e
-        else:
-            t = min((e - 1.0) / 2.0, 1.0)
-            w[LONG_3X], w[LONG_1X] = t, 1.0 - t
-        return w
+        return exposure_to_weights(e, self.long_mode)
 
     def _apply_limits(
         self, w: dict[str, float], lim: RiskConfig, adjustments: list[str]

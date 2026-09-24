@@ -82,14 +82,27 @@ commission  = max(commission_minimum, commission_per_order + commission_per_shar
   - `equity = initial + realized + unrealized − commissions + interest`
 - **Price basis.** Prices are **total-return adjusted** for both signals and accounting. Cash dividends are therefore reinvested implicitly (returns are correct; share counts differ from the historical raw share counts).
 
-## Allocation (interim, until Milestone 7)
+## Allocation and risk (Milestone 7)
 
-A strategy's `suggested_exposure` (QQQ-equivalent), averaged across strategies if several run, is mapped to weights:
-- up to 1× → QQQ;
-- 1× to 3× → the least-leveraged QQQ + TQQQ mix at 100% invested;
-- below 0 → SQQQ (inverse exposure is held, never shorted).
+By default (`backtest.allocation.risk_engine: true`) every decision goes through the same chain as live trading:
 
-The static caps in `risk.yaml` are then applied, and each cap is recorded in `decisions.csv`. **This is not the risk engine.** Volatility targeting, drawdown bands, turnover limits and daily-loss limits arrive in Milestone 7.
+1. **Ensemble.** Strategy weighting, clustering and family caps.
+2. **Allocation policy.** Exposure is mapped to QQQ / TQQQ / SQQQ; inverse exposure is held, never shorted.
+3. **Risk engine.** Volatility target, drawdown bands with hysteresis, regime caps, exposure caps and turnover. See [RISK_MANAGEMENT.md](RISK_MANAGEMENT.md#implementation-notes-m7).
+
+**Point-in-time.** The risk context is built from data visible at the decision:
+- equity at the decision's sizing prices;
+- peak equity and the previous session's equity from past marks;
+- underlying returns through the decision time;
+- current weights including pending orders.
+
+**Refusals.** A risk failure (e.g. too little history) **refuses** the decision: no orders are placed, and the refusal is recorded and counted in the report.
+
+**Records.** Each decision records its ensemble weights, band, volatility scale, flags and every adjustment (in `decisions.csv`).
+
+**Other modes.**
+- `risk_engine: false` keeps the M5 interim static caps, for comparison only.
+- `apply_risk_limits: false` disables limits entirely; engine unit tests only.
 
 ## Metrics
 
@@ -132,7 +145,7 @@ With `--synthetic`, TQQQ/SQQQ histories are extended with **validated** syntheti
 ## Known limitations
 
 - Daily bars only. Intraday near-close proxies, auction-imbalance and halt modelling are future work.
-- Volatility targeting, drawdown bands and turnover limits are not applied until the Milestone 7 risk engine.
+- Ensemble weights use frictionless shadow returns (a proxy); the kill switch is never engaged in simulations.
 - Commission defaults are 0 (typical for US ETF brokers today); spreads and slippage are assumptions to calibrate against paper-trading fills (Milestone 13).
 - Taxes, borrow costs and dividend withholding are not modelled.
 - Results on generated or synthetic data say nothing about real markets.
