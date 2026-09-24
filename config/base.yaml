@@ -153,3 +153,55 @@ backtest:
     long_mode: qqq_then_tqqq       # qqq_then_tqqq | tqqq_only | qqq_only
     apply_risk_limits: true        # static caps from risk.yaml (full risk engine: M7)
   report_dir: var/reports
+
+# -----------------------------------------------------------------------------
+# Research robustness (Milestone 6). Evaluates HYPOTHETICAL backtests only.
+# Nothing here adopts parameters or promotes beyond "validated"; see docs/RESEARCH.md.
+# -----------------------------------------------------------------------------
+research:
+  output_dir: var/research
+  registry_path: var/research/trials.jsonl       # append-only: every trial ever run
+  governance_ledger: var/research/governance.jsonl
+  max_grid_points: 64              # a larger param_grid is refused (every point is a trial)
+  workers: 1                       # >1 runs trials in separate processes (identical results)
+  seed: 20240601                   # all resampling is seeded and reproducible
+  overfit_threshold: 0.5           # robustness score below this => potentially_overfit
+  pbo_partitions: 16               # CSCV blocks (even); C(16, 8) = 12,870 combinations
+  walk_forward:
+    scheme: rolling                # rolling | anchored
+    train_years: 8
+    validate_years: 2
+    test_years: 1
+    step_years: 1                  # >= test_years: OOS windows never overlap
+    top_k: 3                       # plateau-ranked train candidates tried on validation
+  bootstrap:
+    samples: 2000
+    mean_block_length: 20          # stationary bootstrap, mean block of ~1 month
+    confidence: 0.95
+  monte_carlo:
+    simulations: 1000              # trade-sequence, return-block and start-date resamples
+    cost_simulations: 10           # engine re-runs with costs scaled by a random factor
+    cost_multiplier_range: [0.5, 3.0]
+    delays: [0, 1, 2]              # extra sessions of signal delay (engine re-runs)
+    start_skip_fraction: 0.33
+    min_years: 3
+    top_n: 5                       # engine-based Monte Carlo for the top-ranked candidates
+  gates:                           # ALL must pass for automated research -> validated
+    dsr_min: 0.95
+    pbo_max: 0.30
+    robustness_min: 0.5
+    oos_sharpe_min: 0.0
+    fdr_q: 0.10
+    min_oos_sessions: 504
+    real_data_only: true           # synthetic OOS periods can never validate a strategy
+    min_sharpe_vs_benchmark: 0.0   # OOS Sharpe must at least match QQQ buy-and-hold (same dates)
+  scorecard_weights:               # percentile-rank weights; CAGR is deliberately absent
+    oos_sharpe: 3.0
+    oos_sortino: 2.0
+    oos_max_drawdown: 2.0
+    oos_calmar: 2.0
+    robustness: 3.0
+    regime_consistency: 1.5
+    diversification: 1.5
+    turnover: 1.0
+    execution: 0.5

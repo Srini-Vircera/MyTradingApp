@@ -16,8 +16,8 @@ risk are grouped (M7) because they share the target-portfolio contract.
 | 3 | Indicator engine | **done** |
 | 4 | Strategy interface + candidate catalogue | **done** |
 | 5 | Backtesting engine + performance analytics + reports | **done** |
-| 6 | Research robustness: sensitivity, walk-forward, Monte Carlo, DSR/PBO, ranking, governance registry | next |
-| 7 | Ensemble + portfolio allocation + risk engine | |
+| 6 | Research robustness: sensitivity, walk-forward, Monte Carlo, DSR/PBO, ranking, governance registry | **done** |
+| 7 | Ensemble + portfolio allocation + risk engine | next |
 | 8 | PostgreSQL persistence + audit trail | |
 | 9 | Broker abstraction, Alpaca paper, order planner/manager, reconciliation | |
 | 10 | Scheduler, trading cycle, shadow mode, email notifications | |
@@ -121,8 +121,28 @@ docker-compose PostgreSQL; CI workflow; design docs.
 - [x] Dedicated look-ahead, timing, accounting, cost and determinism tests (future poisoning, sign-oracle power test, runtime guards).
 - [ ] Before trusting any number: real data downloaded and validated, and the synthetic model calibrated on real TQQQ/SQQQ (carried over from M2).
 
-### M6 — Research robustness
-**Acceptance:** parameter sweeps + heatmaps + robustness score (a synthetic "sharp peak" fixture is flagged overfit, a plateau fixture is not); anchored & rolling walk-forward with IS/OOS clearly separated in charts; Monte Carlo over the listed dimensions with percentile tables; DSR, PBO (CSCV), block bootstrap, reality-check and BH-FDR implemented and tested against published examples; ranking scorecard; trial registry.
+### M6 — Research robustness ✅
+**Deliverables** (see [RESEARCH.md](RESEARCH.md)):
+- Trials (one M5 backtest per `param_grid` point, parallelisable, deterministic) and an append-only trial registry.
+- A robustness score and plateau-centre selection; heatmaps.
+- Rolling and anchored walk-forward with stitched OOS returns.
+- Deflated Sharpe, PBO (CSCV), stationary-bootstrap CIs, White's Reality Check / Hansen SPA, and Benjamini–Hochberg FDR.
+- Regime and decade consistency.
+- Monte Carlo over six dimensions.
+- A percentile-rank scorecard with fail-closed gates.
+- A governance ledger with automated `research ↔ validated` only.
+- A research HTML report and CSV/JSON exports.
+- `aq research run | trials | status`.
+
+**Acceptance:**
+- [x] Parameter sweeps, heatmaps and a robustness score: the sharp-peak fixture is flagged overfit, the plateau fixture is not, and selection prefers the plateau centre.
+- [x] Anchored and rolling walk-forward. IS and OOS are clearly separated, in separate charts and fold tables. Future-poisoning tests show selection never sees the test window.
+- [x] Monte Carlo over trade sequence, return blocks, costs, parameters, start date and signal delay, with adverse-percentile tables (median, p75, p90, p95, worst), rounded.
+- [x] DSR (reproduces the Bailey & López de Prado example), PBO (hand case, noise ≈ 0.5, skill ≈ 0, brute-force equivalence), block bootstrap, Reality Check/SPA, and BH-FDR (reproduces the BH 1995 example).
+- [x] Ranking scorecard, never CAGR; gates fail closed; synthetic OOS can never validate.
+- [x] Trial registry: append-only, distinct counting, corruption refused; it feeds the DSR N.
+- [x] Governance: software never targets beyond `validated` (tested for every state) and never edits `strategies.yaml`.
+- [ ] **Operator step:** run `aq research run` on validated real data (after the M2/M5 calibration steps) and review the evidence. No real-data research has been performed in the build environment.
 
 ### M7 — Ensemble, portfolio, risk
 **Acceptance:** equal/fixed/risk-adjusted/walk-forward weighting; correlation clustering and family caps; score→allocation policy; risk engine applying every rule in RISK_MANAGEMENT.md with an adjustment record per change; property tests: output never violates any configured limit for random inputs; failure inside any rule ⇒ refusal.

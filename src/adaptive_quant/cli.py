@@ -12,7 +12,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from adaptive_quant import __version__, cli_backtest, cli_data, cli_strategies
+from adaptive_quant import __version__, cli_backtest, cli_data, cli_research, cli_strategies
 from adaptive_quant.config.loader import LoadedConfig, load_config
 from adaptive_quant.config.schema import redact
 from adaptive_quant.config.secrets import Secrets, load_secrets
@@ -73,6 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
     cli_data.register(sub)
     cli_strategies.register(sub)
     cli_backtest.register(sub)
+    cli_research.register(sub)
     return parser
 
 
@@ -108,6 +109,8 @@ def _dispatch(args: argparse.Namespace, clock: Clock) -> int:
         return cli_strategies.run(args, loaded, clock)
     if args.command == "backtest":
         return cli_backtest.run(args, loaded, clock)
+    if args.command == "research":
+        return cli_research.run(args, loaded, clock)
     raise AssertionError(f"unhandled command {args.command}")  # pragma: no cover
 
 

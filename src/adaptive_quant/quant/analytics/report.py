@@ -621,3 +621,6 @@ _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <style>{css}</style></head><body><main class="viz-root">
 {body}
 </main><script>{js}</script></body></html>"""
+
+#: shared page shell for other HTML reports (research, M6)
+PAGE_TEMPLATE, PAGE_CSS, PAGE_JS = _PAGE, _CSS, _JS

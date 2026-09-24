@@ -20,7 +20,7 @@ Built milestone by milestone — see [docs/ROADMAP.md](docs/ROADMAP.md).
 | Indicator library: 21 point-in-time indicators with look-ahead tests (M3) | ✅ done |
 | Strategies: 20 candidates + 2 benchmarks, governance, research signals (M4) | ✅ done |
 | Backtesting: point-in-time engine, costs, exact accounting, metrics, HTML report (M5) | ✅ done |
-| Research robustness: walk-forward, Monte Carlo, overfitting controls (M6) | planned |
+| Research robustness: sweeps, walk-forward, Monte Carlo, DSR/PBO/Reality Check/FDR, scorecard, trial registry (M6) | ✅ done |
 | Ensemble, risk engine, persistence, broker/OMS, scheduler (M7–M10) | planned |
 | API, dashboard, deployment (M11–M13) | planned |
 
@@ -39,6 +39,7 @@ Sections below marked *(Milestone N)* describe commands that do not exist yet.
 | [INDICATORS.md](docs/INDICATORS.md) | indicator definitions, warm-up, point-in-time guarantees |
 | [STRATEGIES.md](docs/STRATEGIES.md) | strategy contract, catalogue, governance, research signals |
 | [BACKTESTING.md](docs/BACKTESTING.md) | execution timing, costs, accounting, metrics, synthetic separation |
+| [RESEARCH.md](docs/RESEARCH.md) | parameter robustness, walk-forward, Monte Carlo, multiple-testing controls, scorecard, governance |
 | [DATABASE.md](docs/DATABASE.md) | audit-trail schema |
 | [SAFETY.md](docs/SAFETY.md) | kill switch, refusal conditions, live-trading lock |
 | [ROADMAP.md](docs/ROADMAP.md) | milestones and acceptance criteria |
@@ -157,17 +158,31 @@ aq backtest run --strategy st_ema_cross --execution next_open --delay 1
 - **Synthetic data:** synthetic periods are labelled and reported separately.
 - **Details:** [docs/BACKTESTING.md](docs/BACKTESTING.md).
 
-## 8. Research and trading workflows *(Milestones 6–13)*
+## 8. Research robustness (hypothetical results)
+
+```bash
+aq research run                                   # all candidates: sweeps, walk-forward, statistics, Monte Carlo
+aq research run --strategy st_ema_cross --workers 4
+aq research trials                                # every trial ever run on this data (the DSR "N")
+aq research status                                # evidence and automated lifecycle changes
+```
+
+- **Output:** `var/research/<timestamp>-<ids>/report.html` plus CSV/JSON exports.
+- **Honest counting:** every trial is appended to `var/research/trials.jsonl`, and the Deflated Sharpe uses that count.
+- **Ranking:** a scorecard of out-of-sample risk-adjusted metrics and robustness, never CAGR. Strict gates must all pass.
+- **Governance:** software can mark a strategy `validated` (and undo it) in `var/research/governance.jsonl`. It never edits `strategies.yaml` and never promotes to paper, shadow or live.
+- **Details:** [docs/RESEARCH.md](docs/RESEARCH.md).
+
+## 9. Trading workflows *(Milestones 7–13)*
 
 | Task | Command (planned) | Milestone |
 |---|---|---|
-| Strategy research (sweeps, walk-forward, Monte Carlo) | `aq research run` | 6 |
 | Start the API | `aq api` | 11 |
 | Start the dashboard | `cd apps/dashboard && npm run dev` | 12 |
 | Paper trading | `aq --env paper trade run` | 10 |
 | Shadow mode | set `trading.mode: shadow`, then `aq trade run` | 10 |
 
-## 9. Logs
+## 10. Logs
 
 Structured logs go to stderr — JSON in paper/production, readable console
 output in development (`logging.format`). Every record carries a UTC timestamp
@@ -175,7 +190,7 @@ and, once trading runs exist, `run_id` and `config_version`. Secret-looking
 fields are redacted. The kill-switch audit trail is
 `var/state/kill_switch_audit.jsonl`.
 
-## 10. Tests and quality checks
+## 11. Tests and quality checks
 
 ```bash
 make test        # pytest
@@ -189,7 +204,7 @@ make validate    # validate every shipped environment
 ## Project layout
 
 ```
-src/adaptive_quant/   core, config, observability, governance, notifications, quant/{data,indicators,strategies,backtest,analytics}, trading/…
+src/adaptive_quant/   core, config, observability, governance, notifications, quant/{data,indicators,strategies,backtest,analytics,research}, trading/…
 config/               YAML configuration
 tests/                unit / integration / regression
 docs/                 design and operating documentation

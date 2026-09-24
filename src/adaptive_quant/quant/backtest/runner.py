@@ -11,6 +11,7 @@ from datetime import date
 import pandas as pd
 
 from adaptive_quant.config.loader import LoadedConfig
+from adaptive_quant.config.schema import Settings
 from adaptive_quant.quant.analytics.metrics import TradeStats, performance_summary, trade_stats
 from adaptive_quant.quant.backtest.benchmarks import Benchmark, benchmark_curves
 from adaptive_quant.quant.backtest.data import BacktestData
@@ -50,12 +51,7 @@ def run_backtest(
         strategies=strategies,
         instruments=s.universe.by_symbol,
         calendar=calendar,
-        settings=EngineSettings(
-            config=s.backtest,
-            rebalance_threshold=s.trading.rebalance_threshold_weight,
-            allow_fractional=s.trading.allow_fractional_shares,
-            risk_limits=s.risk,
-        ),
+        settings=engine_settings(s),
         synthetic=data.synthetic,
     )
     result = engine.run(start, end)
@@ -63,6 +59,15 @@ def run_backtest(
     if data.missing_optional:
         notes.append(f"optional data unavailable: {', '.join(data.missing_optional)}")
     return analyse(result, data, loaded, notes=notes)
+
+
+def engine_settings(s: Settings) -> EngineSettings:
+    return EngineSettings(
+        config=s.backtest,
+        rebalance_threshold=s.trading.rebalance_threshold_weight,
+        allow_fractional=s.trading.allow_fractional_shares,
+        risk_limits=s.risk,
+    )
 
 
 def analyse(

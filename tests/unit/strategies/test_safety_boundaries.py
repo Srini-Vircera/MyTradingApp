@@ -48,8 +48,11 @@ def test_strategies_and_indicators_have_no_io_or_secrets(path: Path) -> None:
         assert token not in text, f"{path.name} references {token}"
 
 
-BACKTEST = sorted((SRC / "quant" / "backtest").rglob("*.py")) + sorted(
-    (SRC / "quant" / "analytics").rglob("*.py")
+BACKTEST = (
+    sorted((SRC / "quant" / "backtest").rglob("*.py"))
+    + sorted((SRC / "quant" / "analytics").rglob("*.py"))
+    + sorted((SRC / "quant" / "research").rglob("*.py"))
+    + [SRC / "governance" / "research.py", SRC / "governance" / "lifecycle.py"]
 )
 
 

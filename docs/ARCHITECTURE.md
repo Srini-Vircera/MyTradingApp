@@ -90,7 +90,7 @@ MyTradingApp/                      (the repo; the platform is called "adaptive-q
 │   ├── core/                      enums, errors, clock, money, ids, domain models   [M1]
 │   ├── config/                    YAML schema, loader, secrets, fingerprinting       [M1]
 │   ├── observability/             structured logging (metrics later)                 [M1]
-│   ├── governance/                strategy lifecycle & approvals                      [M1]
+│   ├── governance/                strategy lifecycle & approvals [M1]; research evidence ledger [M6]
 │   ├── notifications/             event taxonomy, router, channels                    [M1 contract, M10 email]
 │   ├── quant/
 │   │   ├── data/                  calendar, bars, providers, validation, store, synthetic  [M2]
@@ -98,7 +98,7 @@ MyTradingApp/                      (the repo; the platform is called "adaptive-q
 │   │   ├── strategies/            Strategy base, 22 candidates, catalogue, runner   [M4]
 │   │   ├── backtest/              engine, timing, costs, Decimal ledger, allocation  [M5]
 │   │   ├── analytics/             metrics, SVG charts, HTML report + exports         [M5]
-│   │   ├── optimization/          sensitivity, walk-forward, Monte Carlo, DSR/PBO    [M6]
+│   │   ├── research/              trials+registry, robustness, walk-forward, Monte Carlo, DSR/PBO/RC/FDR, scorecard  [M6]
 │   │   ├── ensemble/              signal combination, correlation control           [M7]
 │   │   ├── portfolio/             score → weights, rebalance bands                   [M7]
 │   │   └── risk/                  independent risk engine                            [M7]
@@ -207,6 +207,22 @@ class BacktestEngine:                                # engine.py - event-driven,
 def run_backtest(loaded, strategies, data, calendar, start, end) -> AnalysedBacktest: ...  # runner.py
 def performance_summary(equity, *, rf_annual, exposure, turnover, trades, benchmark) -> dict: ...
 def write_report(analysed, out_dir, title) -> Path: ...           # report.html + CSV/JSON
+```
+
+Implemented in M6 (`quant/research`, `governance/research.py`, see [RESEARCH.md](RESEARCH.md)):
+
+```python
+def run_trials(specs: Sequence[TrialSpec], ctx: TrialContext, workers: int) -> list[TrialOutcome]: ...
+class TrialRegistry:                                 # append-only JSONL; DSR counts every trial
+    def distinct_trials(self, data_fingerprint=None, purpose=None) -> int: ...
+def robustness(grid: ParamGrid, metric, threshold) -> RobustnessResult: ...   # plateau vs peak
+def walk_forward(grid, coords, returns, settings) -> WalkForwardResult: ...   # IS/OOS separated
+def deflated_sharpe_ratio(r, n_trials, var_trial_sr) -> DeflatedSharpe: ...
+def pbo_cscv(returns, partitions) -> PBOResult: ...
+def reality_check(excess, *, samples, mean_block, seed) -> RealityCheckResult: ...  # White + SPA
+def score(candidates, weights, gates) -> list[ScoredCandidate]: ...           # never by CAGR
+def proposed_transition(record, current, at) -> LifecycleTransition | None: ...  # <= VALIDATED only
+def run_research(versions, ctx, cfg, registry, ledger, *, now, config_version) -> ResearchResult: ...
 ```
 
 Specified here, implemented in later milestones:

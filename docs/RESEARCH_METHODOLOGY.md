@@ -70,6 +70,9 @@ path excluded) and the report says so.
 
 ## 4. Walk-forward validation (M6)
 
+Implemented; exact definitions and defaults are in [RESEARCH.md](RESEARCH.md).
+
+
 Anchored and rolling schemes, e.g. train 8 y → validate 2 y → test 1 y, step 1 y.
 Parameters and ensemble weights are chosen **only** on train/validate data; the
 test slice is never touched during selection. Out-of-sample slices are stitched

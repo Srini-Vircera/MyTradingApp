@@ -360,3 +360,40 @@ class TestDataConfig:
         patch_yaml("base.yaml", lambda d: d["data"].update({"primary_provider": "yahoo"}))
         with pytest.raises(ConfigurationError, match="primary_provider"):
             load_config("development", config_dir=config_dir)
+
+
+class TestResearchConfig:
+    def test_defaults_are_conservative(self, config_dir: Path) -> None:
+        r = load_config("development", config_dir=config_dir).settings.research
+        assert r.gates.real_data_only and r.gates.dsr_min >= 0.95
+        assert r.walk_forward.step_years >= r.walk_forward.test_years
+        assert "cagr" not in r.scorecard_weights
+
+    @pytest.mark.parametrize(
+        ("patch", "match"),
+        [
+            ({"scorecard_weights": {"cagr": 1.0}}, "CAGR is deliberately not possible"),
+            ({"pbo_partitions": 7}, "even"),
+            ({"walk_forward": {"test_years": 2, "step_years": 1}}, "overlapping"),
+            ({"monte_carlo": {"cost_multiplier_range": [3.0, 1.0]}}, "cost_multiplier_range"),
+            ({"scorecard_weights": {"oos_sharpe": 0.0}}, "positive weight"),
+            ({"gates": {"surprise": 1}}, "surprise"),
+        ],
+    )
+    def test_invalid_research_settings_rejected(
+        self, config_dir: Path, patch_yaml: PatchYaml, patch: dict[str, Any], match: str
+    ) -> None:
+        def apply(d: dict[str, Any]) -> None:
+            for k, v in patch.items():
+                if (
+                    isinstance(v, dict)
+                    and isinstance(d["research"].get(k), dict)
+                    and k != "scorecard_weights"
+                ):
+                    d["research"][k].update(v)
+                else:
+                    d["research"][k] = v
+
+        patch_yaml("base.yaml", apply)
+        with pytest.raises(ConfigurationError, match=match):
+            load_config("development", config_dir=config_dir)

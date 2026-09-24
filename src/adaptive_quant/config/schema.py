@@ -481,6 +481,111 @@ class BacktestConfig(Section):
     report_dir: Path = Path("var/reports")
 
 
+# ============================================================ research (M6)
+class WalkForwardConfig(Section):
+    scheme: str = Field(default="rolling", pattern="^(rolling|anchored)$")
+    train_years: Annotated[float, Field(gt=0.0, le=30.0)] = 8.0
+    validate_years: Annotated[float, Field(gt=0.0, le=10.0)] = 2.0
+    test_years: Annotated[float, Field(gt=0.0, le=10.0)] = 1.0
+    step_years: Annotated[float, Field(gt=0.0, le=10.0)] = 1.0
+    top_k: int = Field(default=3, ge=1, le=50)
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.step_years < self.test_years:
+            raise ValueError("walk_forward.step_years must be >= test_years (no overlapping OOS)")
+        return self
+
+
+class BootstrapConfig(Section):
+    samples: int = Field(default=2000, ge=100, le=100_000)
+    mean_block_length: Annotated[float, Field(ge=1.0, le=252.0)] = 20.0
+    confidence: Annotated[float, Field(gt=0.5, lt=1.0)] = 0.95
+
+
+class MonteCarloConfig(Section):
+    simulations: int = Field(default=1000, ge=10, le=100_000)
+    cost_simulations: int = Field(default=10, ge=0, le=500)
+    cost_multiplier_range: tuple[float, float] = (0.5, 3.0)
+    delays: list[Annotated[int, Field(ge=0, le=20)]] = Field(default_factory=lambda: [0, 1, 2])
+    start_skip_fraction: Fraction = 0.33
+    min_years: Annotated[float, Field(gt=0.0)] = 3.0
+    top_n: int = Field(default=5, ge=0, le=100)
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        lo, hi = self.cost_multiplier_range
+        if not 0.0 <= lo <= hi:
+            raise ValueError("cost_multiplier_range must satisfy 0 <= low <= high")
+        return self
+
+
+class ResearchGatesConfig(Section):
+    """Pass/fail gates for automated RESEARCH -> VALIDATED (never beyond)."""
+
+    dsr_min: Fraction = 0.95
+    pbo_max: Fraction = 0.30
+    robustness_min: Fraction = 0.50
+    oos_sharpe_min: float = 0.0
+    fdr_q: Fraction = 0.10
+    min_oos_sessions: int = Field(default=504, ge=21)
+    real_data_only: bool = True
+    min_sharpe_vs_benchmark: float = 0.0
+
+
+class ResearchConfig(Section):
+    output_dir: Path = Path("var/research")
+    registry_path: Path = Path("var/research/trials.jsonl")
+    governance_ledger: Path = Path("var/research/governance.jsonl")
+    max_grid_points: int = Field(default=64, ge=1, le=1000)
+    workers: int = Field(default=1, ge=1, le=64)
+    seed: int = Field(default=20240601, ge=0)
+    overfit_threshold: Fraction = 0.50
+    pbo_partitions: int = Field(default=16, ge=2, le=20)
+    walk_forward: WalkForwardConfig = WalkForwardConfig()
+    bootstrap: BootstrapConfig = BootstrapConfig()
+    monte_carlo: MonteCarloConfig = MonteCarloConfig()
+    gates: ResearchGatesConfig = ResearchGatesConfig()
+    scorecard_weights: dict[str, Annotated[float, Field(ge=0.0)]] = Field(
+        default_factory=lambda: {
+            "oos_sharpe": 3.0,
+            "oos_sortino": 2.0,
+            "oos_max_drawdown": 2.0,
+            "oos_calmar": 2.0,
+            "robustness": 3.0,
+            "regime_consistency": 1.5,
+            "diversification": 1.5,
+            "turnover": 1.0,
+            "execution": 0.5,
+        }
+    )
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.pbo_partitions % 2:
+            raise ValueError("research.pbo_partitions must be even")
+        allowed = {
+            "oos_sharpe",
+            "oos_sortino",
+            "oos_max_drawdown",
+            "oos_calmar",
+            "robustness",
+            "regime_consistency",
+            "diversification",
+            "turnover",
+            "execution",
+        }
+        unknown = set(self.scorecard_weights) - allowed
+        if unknown:
+            raise ValueError(
+                f"unknown scorecard criteria: {sorted(unknown)} (allowed: {sorted(allowed)}; "
+                "ranking by CAGR is deliberately not possible)"
+            )
+        if sum(self.scorecard_weights.values()) <= 0:
+            raise ValueError("scorecard_weights need at least one positive weight")
+        return self
+
+
 # ============================================================ root
 class Settings(Section):
     """The fully resolved, validated application configuration."""
@@ -497,6 +602,7 @@ class Settings(Section):
     risk: RiskConfig
     strategies: StrategiesConfig = StrategiesConfig()
     backtest: BacktestConfig = BacktestConfig()
+    research: ResearchConfig = ResearchConfig()
 
     @model_validator(mode="after")
     def _check(self) -> Self:

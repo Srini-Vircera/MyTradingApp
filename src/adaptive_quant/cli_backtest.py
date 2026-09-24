@@ -89,7 +89,7 @@ def run(args: argparse.Namespace, loaded: LoadedConfig, clock: Clock) -> int:
         synthetic_symbols=settings.data.synthetic.products.keys(),
     )
     calendar = nyse_calendar()
-    start, end = _default_range(data, strategies, calendar, args.start, args.end)
+    start, end = default_range(data, strategies, calendar, args.start, args.end)
     analysed = run_backtest(loaded, strategies, data, calendar, start, end)
     analysed.notes[:0] = overrides
     stamp = f"{clock.now().astimezone(MARKET_TZ):%Y%m%d-%H%M%S}"
@@ -149,7 +149,7 @@ def _apply_overrides(
     return dataclasses.replace(loaded, settings=settings), [note]
 
 
-def _default_range(
+def default_range(
     data: BacktestData,
     strategies: list[Strategy],
     calendar: TradingCalendar,

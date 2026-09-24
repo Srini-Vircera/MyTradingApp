@@ -78,6 +78,7 @@ ignore = [
 # HTML/SVG/CSS/JS templates: wrapping markup strings hurts readability
 "src/adaptive_quant/quant/analytics/charts.py" = ["E501"]
 "src/adaptive_quant/quant/analytics/report.py" = ["E501"]
+"src/adaptive_quant/quant/research/report.py" = ["E501"]
 
 # ---------------------------------------------------------------- mypy
 [tool.mypy]
