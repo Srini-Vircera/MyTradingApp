@@ -19,7 +19,8 @@ Built milestone by milestone — see [docs/ROADMAP.md](docs/ROADMAP.md).
 | Market data: calendar, providers, validation, storage, synthetic history (M2) | ✅ done |
 | Indicator library: 21 point-in-time indicators with look-ahead tests (M3) | ✅ done |
 | Strategies: 20 candidates + 2 benchmarks, governance, research signals (M4) | ✅ done |
-| Backtesting, research robustness (M5–M6) | planned |
+| Backtesting: point-in-time engine, costs, exact accounting, metrics, HTML report (M5) | ✅ done |
+| Research robustness: walk-forward, Monte Carlo, overfitting controls (M6) | planned |
 | Ensemble, risk engine, persistence, broker/OMS, scheduler (M7–M10) | planned |
 | API, dashboard, deployment (M11–M13) | planned |
 
@@ -37,6 +38,7 @@ Sections below marked *(Milestone N)* describe commands that do not exist yet.
 | [DATA.md](docs/DATA.md) | market data: conventions, providers, validation, storage, synthetic history |
 | [INDICATORS.md](docs/INDICATORS.md) | indicator definitions, warm-up, point-in-time guarantees |
 | [STRATEGIES.md](docs/STRATEGIES.md) | strategy contract, catalogue, governance, research signals |
+| [BACKTESTING.md](docs/BACKTESTING.md) | execution timing, costs, accounting, metrics, synthetic separation |
 | [DATABASE.md](docs/DATABASE.md) | audit-trail schema |
 | [SAFETY.md](docs/SAFETY.md) | kill switch, refusal conditions, live-trading lock |
 | [ROADMAP.md](docs/ROADMAP.md) | milestones and acceptance criteria |
@@ -142,18 +144,30 @@ aq strategies signals --as-of 2024-06-28   # signals from stored data - places N
 - **Lifecycle:** every strategy starts in `research`. Paper and live modes run only strategies a human has promoted; `live_approved` needs a written approval in the config. See [docs/STRATEGIES.md](docs/STRATEGIES.md).
 - **Hypotheses only:** none of these strategies has been shown to work yet.
 
-## 7. Research and trading workflows *(Milestones 5–13)*
+## 7. Backtesting (hypothetical results)
+
+```bash
+aq backtest run --strategy ltt_sma_distance                    # real data only
+aq backtest run --strategy ltt_sma_distance --synthetic        # + labelled synthetic pre-2010 history
+aq backtest run --strategy st_ema_cross --execution next_open --delay 1
+```
+
+- **Output:** each run writes `var/reports/<timestamp>-<strategy>/report.html` plus CSV/JSON exports.
+- **Hypothetical:** results are simulations with modelled costs and fills.
+- **Synthetic data:** synthetic periods are labelled and reported separately.
+- **Details:** [docs/BACKTESTING.md](docs/BACKTESTING.md).
+
+## 8. Research and trading workflows *(Milestones 6–13)*
 
 | Task | Command (planned) | Milestone |
 |---|---|---|
-| Run a backtest | `aq backtest run --strategy long_term_trend_sma` | 5 |
 | Strategy research (sweeps, walk-forward, Monte Carlo) | `aq research run` | 6 |
 | Start the API | `aq api` | 11 |
 | Start the dashboard | `cd apps/dashboard && npm run dev` | 12 |
 | Paper trading | `aq --env paper trade run` | 10 |
 | Shadow mode | set `trading.mode: shadow`, then `aq trade run` | 10 |
 
-## 8. Logs
+## 9. Logs
 
 Structured logs go to stderr — JSON in paper/production, readable console
 output in development (`logging.format`). Every record carries a UTC timestamp
@@ -161,7 +175,7 @@ and, once trading runs exist, `run_id` and `config_version`. Secret-looking
 fields are redacted. The kill-switch audit trail is
 `var/state/kill_switch_audit.jsonl`.
 
-## 9. Tests and quality checks
+## 10. Tests and quality checks
 
 ```bash
 make test        # pytest
@@ -175,7 +189,7 @@ make validate    # validate every shipped environment
 ## Project layout
 
 ```
-src/adaptive_quant/   core, config, observability, governance, notifications, quant/{data,indicators,strategies}, trading/…
+src/adaptive_quant/   core, config, observability, governance, notifications, quant/{data,indicators,strategies,backtest,analytics}, trading/…
 config/               YAML configuration
 tests/                unit / integration / regression
 docs/                 design and operating documentation

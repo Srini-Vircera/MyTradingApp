@@ -22,10 +22,12 @@ import math
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import ClassVar
 
 import pandas as pd
 
+from adaptive_quant.core.clock import ensure_utc
 from adaptive_quant.core.enums import StrategyFamily
 from adaptive_quant.core.errors import InsufficientHistoryError, MissingDataError, StrategyError
 from adaptive_quant.core.models import StrategySignal, direction_for_score
@@ -92,6 +94,22 @@ class Evaluation:
     raw_score: float | None = None  # the un-normalized quantity; defaults to score
     exposure: float | None = None  # defaults to exposure_for(score, limits)
     extra: Mapping[str, float] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class PrecomputedIndicators:
+    """Full-history bars and indicator frames for one strategy (backtest path)."""
+
+    strategy_id: str
+    frames: Mapping[str, tuple[pd.DataFrame, pd.DataFrame]]
+
+
+def _visible(
+    pair: tuple[pd.DataFrame, pd.DataFrame], cut: pd.Timestamp
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    bars, frame = pair
+    n = int(bars.index.searchsorted(cut, side="right"))
+    return bars.iloc[:n], frame.iloc[:n]
 
 
 class Strategy(ABC):
@@ -182,25 +200,78 @@ class Strategy(ABC):
 
     # ------------------------------------------------------------ evaluation
     def generate_signal(self, view: MarketDataView) -> StrategySignal:
-        """Produce a signal from data known at ``view.as_of``."""
+        """Produce a signal from data known at ``view.as_of`` (live / research path).
+
+        Indicators are recomputed on the visible bars only.
+        """
         bars = view.bars(self.signal_symbol)
-        if len(bars) < self.warmup_bars:
+        self._require_history(len(bars), view.as_of)
+        frame = self._engine.compute(bars)
+        optional: dict[str, tuple[pd.DataFrame, pd.DataFrame] | None] = {}
+        for sym in self.optional_symbols:
+            if sym in view.symbols and view.has(sym):
+                obars = view.bars(sym)
+                optional[sym] = (obars, self._engine.compute(obars))
+            else:
+                optional[sym] = None
+        return self._signal(bars, frame, optional, view.as_of)
+
+    def precompute(self, frames: Mapping[str, pd.DataFrame]) -> PrecomputedIndicators:
+        """Compute indicators once over whole histories (backtest path).
+
+        Valid because every indicator is causal (value at t uses rows <= t; proved
+        by the Milestone 3 look-ahead tests). :meth:`signal_at` then slices to
+        ``timestamp <= as_of``, so no row after ``as_of`` is ever *read*.
+        """
+        out: dict[str, tuple[pd.DataFrame, pd.DataFrame]] = {}
+        for sym in (self.signal_symbol, *self.optional_symbols):
+            if sym in frames:
+                bars = frames[sym]
+                out[sym] = (bars, self._engine.compute(bars))
+        return PrecomputedIndicators(self.strategy_id, out)
+
+    def signal_at(self, pre: PrecomputedIndicators, as_of: datetime) -> StrategySignal:
+        """Identical result to ``generate_signal(MarketDataView(frames, as_of))``."""
+        if pre.strategy_id != self.strategy_id:
+            raise StrategyError("precomputed indicators belong to another strategy")
+        cut = pd.Timestamp(ensure_utc(as_of))
+        if self.signal_symbol not in pre.frames:
+            raise MissingDataError(f"no market data loaded for {self.signal_symbol}")
+        bars, frame = _visible(pre.frames[self.signal_symbol], cut)
+        self._require_history(len(bars), cut.to_pydatetime())
+        optional: dict[str, tuple[pd.DataFrame, pd.DataFrame] | None] = {}
+        for sym in self.optional_symbols:
+            optional[sym] = _visible(pre.frames[sym], cut) if sym in pre.frames else None
+        return self._signal(bars, frame, optional, cut.to_pydatetime())
+
+    # ------------------------------------------------------------ shared core
+    def _require_history(self, rows: int, as_of: datetime) -> None:
+        if rows < self.warmup_bars:
             raise InsufficientHistoryError(
-                f"{self.strategy_id}: {len(bars)} bars of {self.signal_symbol} known as of "
-                f"{view.as_of:%Y-%m-%d %H:%M}Z; needs {self.warmup_bars}",
+                f"{self.strategy_id}: {rows} bars of {self.signal_symbol} known as of "
+                f"{as_of:%Y-%m-%d %H:%M}Z; needs {self.warmup_bars}",
                 hint="load more history before this date",
             )
-        frame = self._engine.compute(bars)
+
+    def _signal(
+        self,
+        bars: pd.DataFrame,
+        frame: pd.DataFrame,
+        optional_frames: Mapping[str, tuple[pd.DataFrame, pd.DataFrame] | None],
+        as_of: datetime,
+    ) -> StrategySignal:
         values = self._latest(frame, self.signal_symbol)
-        optional = {sym: self._optional(view, sym) for sym in self.optional_symbols}
+        optional = {sym: self._optional(sym, pair) for sym, pair in optional_frames.items()}
         ctx = StrategyContext(bars=bars, frame=frame, values=values, optional=optional)
         try:
             ev = self.evaluate(ctx)
         except (ValueError, ZeroDivisionError, KeyError) as exc:
             raise StrategyError(f"{self.strategy_id}: evaluation failed: {exc}") from exc
-        return self._to_signal(ev, view, bars, values)
+        return self._to_signal(ev, as_of, bars, values)
 
     def _latest(self, frame: pd.DataFrame, symbol: str) -> dict[str, float]:
+        if len(frame) == 0:  # (a frame with rows but no indicator columns is fine)
+            raise InsufficientHistoryError(f"{self.strategy_id}: no {symbol} bars known")
         last = frame.iloc[-1]
         undefined = [str(k) for k, v in last.items() if not math.isfinite(float(v))]
         if undefined:
@@ -210,22 +281,21 @@ class Strategy(ABC):
             )
         return {str(k): float(v) for k, v in last.items()}
 
-    def _optional(self, view: MarketDataView, symbol: str) -> OptionalData:
+    def _optional(
+        self, symbol: str, pair: tuple[pd.DataFrame, pd.DataFrame] | None
+    ) -> OptionalData:
         """Optional data is used only if present *and* fully warmed up; otherwise None."""
-        if symbol not in view.symbols or not view.has(symbol):
-            return OptionalData(symbol, None)
-        bars = view.bars(symbol)
-        if len(bars) < self.warmup_bars:
+        if pair is None or len(pair[0]) < self.warmup_bars:
             return OptionalData(symbol, None)
         try:
-            return OptionalData(symbol, self._latest(self._engine.compute(bars), symbol))
+            return OptionalData(symbol, self._latest(pair[1], symbol))
         except (StrategyError, MissingDataError):
             return OptionalData(symbol, None)
 
     def _to_signal(
         self,
         ev: Evaluation,
-        view: MarketDataView,
+        as_of: datetime,
         bars: pd.DataFrame,
         values: Mapping[str, float],
     ) -> StrategySignal:
@@ -257,7 +327,7 @@ class Strategy(ABC):
         return StrategySignal(
             strategy_name=self.strategy_id,
             strategy_version=self.version_id,
-            timestamp=view.as_of,
+            timestamp=as_of,
             data_timestamp=bars.index[-1].to_pydatetime(),
             direction=direction_for_score(score),
             raw_score=raw,

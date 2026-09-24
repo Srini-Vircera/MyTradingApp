@@ -121,3 +121,35 @@ notifications:
     use_starttls: true
     from_address: ""
     to_addresses: []
+
+# -----------------------------------------------------------------------------
+# Backtesting (Milestone 5). Every number is an ASSUMPTION to be researched.
+# Results are hypothetical; see docs/BACKTESTING.md.
+# -----------------------------------------------------------------------------
+backtest:
+  initial_capital: 100000
+  # near_close      decide at close - near_close_minutes, fill at that close
+  #                 (daily data: decision sees data through the PREVIOUS close)
+  # next_open       decide at the close, fill at the next session's open
+  # next_close      decide at the close, fill at the next session's close
+  # closing_auction decide AND fill at the same close - optimistic; flagged
+  execution: near_close
+  near_close_minutes: 15
+  execution_delay_bars: 0          # extra sessions between decision and fill
+  cash_interest_annual: 0.0        # interest on idle cash (0 = conservative)
+  sizing_cash_buffer: 0.005        # size orders on (1 - buffer) of equity: room for costs/gaps
+  use_synthetic_history: false     # true extends TQQQ/SQQQ before 2010 (labelled SYNTHETIC)
+  costs:
+    commission_per_share: 0.0
+    commission_per_order: 0.0
+    commission_minimum: 0.0
+    half_spread_bps: {default: 2.0, QQQ: 0.5, SPY: 0.5, TQQQ: 1.0, SQQQ: 2.0}
+    slippage_bps: 2.0
+    impact_coefficient_bps: 10.0   # impact = coef * sqrt(order shares / ADV shares)
+    adv_window: 20                 # sessions of volume known at decision time
+    max_participation: 0.05        # fill at most 5% of ADV per order; rest cancelled
+    unknown_volume: assume_liquid  # assume_liquid | reject (synthetic bars have no volume)
+  allocation:
+    long_mode: qqq_then_tqqq       # qqq_then_tqqq | tqqq_only | qqq_only
+    apply_risk_limits: true        # static caps from risk.yaml (full risk engine: M7)
+  report_dir: var/reports

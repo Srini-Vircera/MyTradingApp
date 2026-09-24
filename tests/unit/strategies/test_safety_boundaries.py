@@ -46,3 +46,27 @@ def test_strategies_and_indicators_have_no_io_or_secrets(path: Path) -> None:
     text = path.read_text()
     for token in ("submit_order", "environ", "getenv", "SecretStr", "BrokerAdapter"):
         assert token not in text, f"{path.name} references {token}"
+
+
+BACKTEST = sorted((SRC / "quant" / "backtest").rglob("*.py")) + sorted(
+    (SRC / "quant" / "analytics").rglob("*.py")
+)
+
+
+@pytest.mark.parametrize("path", BACKTEST, ids=lambda p: str(p.relative_to(SRC)))
+def test_backtester_cannot_reach_brokers_network_or_credentials(path: Path) -> None:
+    forbidden = (
+        "httpx",
+        "requests",
+        "socket",
+        "urllib",
+        "subprocess",
+        "adaptive_quant.config.secrets",
+        "adaptive_quant.quant.data.providers",
+        "adaptive_quant.trading",
+    )
+    bad = {m for m in imports(path) if m in forbidden or m.startswith(forbidden)}
+    assert not bad, f"{path.name} imports {bad}"
+    text = path.read_text()
+    for token in ("BrokerAdapter", "submit_order", "getenv", "environ", "SecretStr"):
+        assert token not in text, f"{path.name} references {token}"

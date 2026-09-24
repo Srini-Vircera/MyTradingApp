@@ -432,6 +432,55 @@ class StrategiesConfig(Section):
         return self
 
 
+# ============================================================ backtest
+class CostConfig(Section):
+    """Transaction-cost assumptions (examples; research them - never zero by default)."""
+
+    commission_per_share: Annotated[float, Field(ge=0.0)] = 0.0
+    commission_per_order: Annotated[float, Field(ge=0.0)] = 0.0
+    commission_minimum: Annotated[float, Field(ge=0.0)] = 0.0
+    half_spread_bps: dict[str, Annotated[float, Field(ge=0.0, le=500.0)]] = Field(
+        default_factory=lambda: {"default": 2.0}
+    )
+    slippage_bps: Annotated[float, Field(ge=0.0, le=500.0)] = 2.0
+    impact_coefficient_bps: Annotated[float, Field(ge=0.0, le=5000.0)] = 10.0
+    adv_window: int = Field(default=20, ge=1, le=252)
+    max_participation: Annotated[float, Field(gt=0.0, le=1.0)] = 0.05
+    unknown_volume: str = Field(default="assume_liquid", pattern="^(assume_liquid|reject)$")
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if "default" not in self.half_spread_bps:
+            raise ValueError("half_spread_bps needs a 'default' entry")
+        return self
+
+    def half_spread(self, symbol: str) -> float:
+        return self.half_spread_bps.get(symbol, self.half_spread_bps["default"])
+
+
+class AllocationConfig(Section):
+    """Interim exposure -> instrument mapping used until the M7 ensemble/risk engine."""
+
+    long_mode: str = Field(default="qqq_then_tqqq", pattern="^(qqq_then_tqqq|tqqq_only|qqq_only)$")
+    apply_risk_limits: bool = True
+
+
+class BacktestConfig(Section):
+    initial_capital: Annotated[float, Field(gt=0.0)] = 100_000.0
+    execution: str = Field(
+        default="near_close",
+        pattern="^(near_close|next_open|next_close|closing_auction)$",
+    )
+    near_close_minutes: int = Field(default=15, ge=1, le=120)
+    execution_delay_bars: int = Field(default=0, ge=0, le=20)
+    cash_interest_annual: Annotated[float, Field(ge=0.0, le=0.2)] = 0.0
+    sizing_cash_buffer: Annotated[float, Field(ge=0.0, le=0.1)] = 0.005
+    use_synthetic_history: bool = False
+    costs: CostConfig = CostConfig()
+    allocation: AllocationConfig = AllocationConfig()
+    report_dir: Path = Path("var/reports")
+
+
 # ============================================================ root
 class Settings(Section):
     """The fully resolved, validated application configuration."""
@@ -447,6 +496,7 @@ class Settings(Section):
     notifications: NotificationsConfig = NotificationsConfig()
     risk: RiskConfig
     strategies: StrategiesConfig = StrategiesConfig()
+    backtest: BacktestConfig = BacktestConfig()
 
     @model_validator(mode="after")
     def _check(self) -> Self:

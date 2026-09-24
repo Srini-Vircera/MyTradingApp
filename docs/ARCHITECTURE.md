@@ -96,8 +96,8 @@ MyTradingApp/                      (the repo; the platform is called "adaptive-q
 │   │   ├── data/                  calendar, bars, providers, validation, store, synthetic  [M2]
 │   │   ├── indicators/            causal indicator functions, spec registry, engine  [M3]
 │   │   ├── strategies/            Strategy base, 22 candidates, catalogue, runner   [M4]
-│   │   ├── backtest/              event loop, execution & cost models                [M5]
-│   │   ├── analytics/             metrics, reports, charts                           [M5]
+│   │   ├── backtest/              engine, timing, costs, Decimal ledger, allocation  [M5]
+│   │   ├── analytics/             metrics, SVG charts, HTML report + exports         [M5]
 │   │   ├── optimization/          sensitivity, walk-forward, Monte Carlo, DSR/PBO    [M6]
 │   │   ├── ensemble/              signal combination, correlation control           [M7]
 │   │   ├── portfolio/             score → weights, rebalance bands                   [M7]
@@ -196,6 +196,17 @@ class StrategyCatalog:                               # catalog.py - config -> st
     def eligible(self, mode: TradingMode) -> list[Strategy]: ...    # live => live_approved only
 
 def run_strategies(strategies, view) -> SignalBatch: ...            # runner.py - fails closed
+```
+
+Implemented in M5 (`quant/backtest`, `quant/analytics`, see [BACKTESTING.md](BACKTESTING.md)):
+
+```python
+class BacktestEngine:                                # engine.py - event-driven, point-in-time
+    def run(self, start: date, end: date) -> BacktestResult: ...   # raises LookAheadError on any leak
+
+def run_backtest(loaded, strategies, data, calendar, start, end) -> AnalysedBacktest: ...  # runner.py
+def performance_summary(equity, *, rf_annual, exposure, turnover, trades, benchmark) -> dict: ...
+def write_report(analysed, out_dir, title) -> Path: ...           # report.html + CSV/JSON
 ```
 
 Specified here, implemented in later milestones:

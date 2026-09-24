@@ -15,8 +15,8 @@ risk are grouped (M7) because they share the target-portfolio contract.
 | 2 | Market data: providers, calendar, validation, Parquet store, synthetic LETF | **done** |
 | 3 | Indicator engine | **done** |
 | 4 | Strategy interface + candidate catalogue | **done** |
-| 5 | Backtesting engine + performance analytics + reports | next |
-| 6 | Research robustness: sensitivity, walk-forward, Monte Carlo, DSR/PBO, ranking, governance registry | |
+| 5 | Backtesting engine + performance analytics + reports | **done** |
+| 6 | Research robustness: sensitivity, walk-forward, Monte Carlo, DSR/PBO, ranking, governance registry | next |
 | 7 | Ensemble + portfolio allocation + risk engine | |
 | 8 | PostgreSQL persistence + audit trail | |
 | 9 | Broker abstraction, Alpaca paper, order planner/manager, reconciliation | |
@@ -99,8 +99,27 @@ docker-compose PostgreSQL; CI workflow; design docs.
 - [x] Governance: live mode can only use `live_approved` strategies; `live_approved` requires a written human approval; shipped config has none eligible outside research.
 - [x] Static safety test: `quant/*` never imports `trading/*`; strategies and indicators never import network, provider, store or secrets code.
 
-### M5 — Backtesting & analytics
-**Acceptance:** event-driven engine using the real risk-engine interface; four explicit execution-timing models; costs (commission, spread, slippage, impact, delay, partial fills); golden-number regression tests for every metric; benchmarks SPY/QQQ/TQQQ/cash; HTML report with all listed charts; test proving same-bar close execution is impossible unless `closing_auction` is selected.
+### M5 — Backtesting & analytics ✅
+**Deliverables** (see [BACKTESTING.md](BACKTESTING.md)):
+- An event-driven engine that uses M4 strategies through a precomputed, point-in-time path.
+- Four execution-timing models, plus execution delay.
+- Costs: spread, slippage, square-root impact, commission, participation-capped partial fills, and cash-limited fills.
+- An exact Decimal FIFO ledger, with a per-session identity check.
+- An interim exposure allocator with the static caps from `risk.yaml`.
+- Benchmarks.
+- The full metric set.
+- A self-contained HTML report plus CSV/JSON exports.
+- `aq backtest run`.
+
+**Acceptance:**
+- [x] The event-driven engine reuses the real strategy code (the risk engine arrives in M7; interim static caps are documented).
+- [x] Four explicit execution-timing models; tests prove a same-bar close fill is impossible unless `closing_auction` is selected, and that it is then flagged.
+- [x] Commission, spread, slippage, impact, delay and partial fills are modelled, with hand-calculated tests.
+- [x] Golden-number regression tests for every metric.
+- [x] SPY/QQQ/TQQQ/cash benchmarks; synthetic periods are separated (banner, shaded band, separate real/synthetic metrics).
+- [x] An HTML report with the equity curve (linear and log), drawdown, rolling return, rolling Sharpe, monthly heatmap, annual returns, exposure and allocation.
+- [x] Dedicated look-ahead, timing, accounting, cost and determinism tests (future poisoning, sign-oracle power test, runtime guards).
+- [ ] Before trusting any number: real data downloaded and validated, and the synthetic model calibrated on real TQQQ/SQQQ (carried over from M2).
 
 ### M6 — Research robustness
 **Acceptance:** parameter sweeps + heatmaps + robustness score (a synthetic "sharp peak" fixture is flagged overfit, a plateau fixture is not); anchored & rolling walk-forward with IS/OOS clearly separated in charts; Monte Carlo over the listed dimensions with percentile tables; DSR, PBO (CSCV), block bootstrap, reality-check and BH-FDR implemented and tested against published examples; ranking scorecard; trial registry.
