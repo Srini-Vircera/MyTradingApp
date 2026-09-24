@@ -22,7 +22,8 @@ Built milestone by milestone — see [docs/ROADMAP.md](docs/ROADMAP.md).
 | Backtesting: point-in-time engine, costs, exact accounting, metrics, HTML report (M5) | ✅ done |
 | Research robustness: sweeps, walk-forward, Monte Carlo, DSR/PBO/Reality Check/FDR, scorecard, trial registry (M6) | ✅ done |
 | Ensemble, allocation policy, independent risk engine (M7) | ✅ done |
-| Persistence, broker/OMS, scheduler (M8–M10) | planned |
+| PostgreSQL audit trail: schema, migrations, repositories, explain query (M8) | ✅ done |
+| Broker/OMS, scheduler (M9–M10) | planned |
 | API, dashboard, deployment (M11–M13) | planned |
 
 Sections below marked *(Milestone N)* describe commands that do not exist yet.
@@ -97,7 +98,15 @@ make db-up        # docker compose up -d postgres (bound to localhost only)
 make db-down      # stop; data volume is kept
 ```
 
-The schema and migrations arrive in Milestone 8.
+Then set `DATABASE_URL` in `.env` (e.g. `postgresql://aq:<password>@127.0.0.1:5432/adaptive_quant`) and:
+
+```bash
+aq db upgrade     # apply migrations; record config version, instruments, strategy versions
+aq db status      # reachable, schema at head, no drift
+aq db explain <cycle-id>   # full stored decision chain of one trading cycle
+```
+
+The audit trail is append-only, and order intents are stored before any order is sent. See [docs/DATABASE.md](docs/DATABASE.md).
 
 ## 4. Stop / resume automated trading (kill switch)
 
@@ -205,7 +214,7 @@ make validate    # validate every shipped environment
 ## Project layout
 
 ```
-src/adaptive_quant/   core, config, observability, governance, notifications, quant/{data,indicators,strategies,backtest,analytics,research,ensemble,portfolio,risk}, trading/…
+src/adaptive_quant/   core, config, observability, governance, notifications, persistence, quant/{data,indicators,strategies,backtest,analytics,research,ensemble,portfolio,risk}, trading/…
 config/               YAML configuration
 tests/                unit / integration / regression
 docs/                 design and operating documentation

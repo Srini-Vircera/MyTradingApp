@@ -1,5 +1,8 @@
 # Database schema overview (PostgreSQL, Milestone 8)
 
+> **Implemented in Milestone 8:** `src/adaptive_quant/persistence/`. See
+> [Implementation notes](#implementation-notes-m8).
+
 Principles: every decision is reproducible from stored rows; append-only
 where possible (corrections are new rows, not updates); every row carries
 `created_at` (UTC) and, for decisions, `config_version` and `run_id`.
@@ -63,3 +66,52 @@ stores their metadata and every operational/audit record. Migrations via Alembic
 (adjustments) → `ensemble_decisions` → `strategy_signals` (scores, reasons,
 indicator values) → `indicator_snapshots` → `data_snapshots`, all under one
 `cycle_id` and `config_version`.
+
+## Implementation notes (M8)
+
+**Code** (`src/adaptive_quant/persistence/`):
+
+| Module | Contents |
+|---|---|
+| `models.py` | SQLAlchemy 2.0 models for every table above (28) |
+| `migrations/` | Alembic; revision `0001` creates the schema and the safety triggers |
+| `db.py` | Engine and transaction handling |
+| `repositories.py` | Reference data, trading cycles and decisions, orders, monitoring |
+| `explain.py` | The "why?" query |
+| `records.py` | Plain record types the repositories accept |
+
+**Layering.** The package depends only on `core` (checked by a static test). The trading layer maps platform objects to records (`trading/audit.py`) and injects the order state-machine guard (`order_repository`).
+
+**Commands** (the URL comes only from `DATABASE_URL`, e.g. `postgresql://aq:…@127.0.0.1:5432/adaptive_quant`, and is printed with the password hidden):
+
+```bash
+make db-up                 # local PostgreSQL (docker compose)
+aq db upgrade              # migrate; record config version, instruments, strategy versions
+aq db status               # reachable? schema at head? any drift between models and database?
+aq db explain cyc-paper-2024-01-02   # full stored decision chain as JSON
+```
+
+**Guarantees:**
+
+| Guarantee | How |
+|---|---|
+| All or nothing | Each repository call is one transaction. The whole decision chain (signals, ensemble, proposal, risk decision, target) commits atomically |
+| Order intents persisted before transmission | `OrderRepository.create_intent` returns only after COMMIT. An unreachable database raises `DatabaseUnavailableError`; a duplicate `client_order_id`, or an unknown cycle or risk decision, raises `PersistenceError`. Either way the order must not be sent |
+| Database down ⇒ no trading | `DatabaseCheck` in the pre-trade gate refuses **all** orders (`database_unavailable`) if the database is unreachable or not at the head migration |
+| Append-only audit | Triggers reject UPDATE and DELETE on every audit table, and DELETE on `order_intents` and `trading_cycles` |
+| Order safety in the database | Triggers enforce defence in depth behind the application's state-machine guard: identifying columns are immutable, terminal states are final, and UNKNOWN can never return to created, validated or submitted |
+| No look-ahead in stored signals | CHECK `data_timestamp <= timestamp` |
+| Idempotency | Configs, strategy versions, data snapshots and instruments are inserted once (keyed on their fingerprints). Duplicate broker execution reports are ignored |
+| Exact numbers | Money, prices and quantities are `NUMERIC`. Decimals in JSON payloads are stored as strings |
+| Secrets | The URL (with password) never appears in logs, errors or `repr`. Resolved configs are stored redacted |
+
+**Tests** (`tests/persistence/`, marker `postgres`). They run against **real PostgreSQL**: a
+temporary local cluster, or the server in `AQ_TEST_DATABASE_URL` (CI runs a PostgreSQL 16
+service). Each test gets a fresh, migrated database. Covered:
+- migrations match the models, with no drift, and downgrade cleanly;
+- every trigger and constraint;
+- atomic rollback;
+- the order lifecycle, including UNKNOWN handling;
+- the full explain chain from a real M7 decision;
+- an unreachable server, and a database taken down mid-session: the next intent is refused and nothing is written;
+- the CLI.

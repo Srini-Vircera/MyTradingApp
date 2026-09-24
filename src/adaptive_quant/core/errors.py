@@ -92,3 +92,11 @@ class InsufficientHistoryError(StrategyError):
 
 class GovernanceError(AQError):
     """A strategy lifecycle transition is not permitted."""
+
+
+class PersistenceError(AQError):
+    """The audit database rejected or could not complete an operation."""
+
+
+class DatabaseUnavailableError(PersistenceError):
+    """The audit database cannot be reached: nothing that must be recorded may proceed."""

@@ -10,6 +10,18 @@ permissions:
 jobs:
   python:
     runs-on: ubuntu-latest
+    services:
+      postgres:  # persistence tests run against a real PostgreSQL (test-only credentials)
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aq
+          POSTGRES_PASSWORD: ci-only-not-secret
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U aq" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      AQ_TEST_DATABASE_URL: postgresql+psycopg://aq:ci-only-not-secret@127.0.0.1:5432/postgres
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3

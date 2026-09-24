@@ -46,6 +46,7 @@ class RefusalReason(StrEnum):
     SIGNAL_FAILURE = "signal_failure"
     RISK_CALCULATION_FAILURE = "risk_calculation_failure"
     RECONCILIATION_FAILURE = "reconciliation_failure"
+    DATABASE_UNAVAILABLE = "database_unavailable"
     KILL_SWITCH_ENGAGED = "kill_switch_engaged"
     DRAWDOWN_EMERGENCY = "drawdown_emergency"
     DAILY_LOSS_LIMIT = "daily_loss_limit"

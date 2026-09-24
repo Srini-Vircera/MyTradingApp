@@ -18,8 +18,8 @@ risk are grouped (M7) because they share the target-portfolio contract.
 | 5 | Backtesting engine + performance analytics + reports | **done** |
 | 6 | Research robustness: sensitivity, walk-forward, Monte Carlo, DSR/PBO, ranking, governance registry | **done** |
 | 7 | Ensemble + portfolio allocation + risk engine | **done** |
-| 8 | PostgreSQL persistence + audit trail | next |
-| 9 | Broker abstraction, Alpaca paper, order planner/manager, reconciliation | |
+| 8 | PostgreSQL persistence + audit trail | **done** |
+| 9 | Broker abstraction, Alpaca paper, order planner/manager, reconciliation | next |
 | 10 | Scheduler, trading cycle, shadow mode, email notifications | |
 | 11 | FastAPI | |
 | 12 | Next.js dashboard | |
@@ -161,8 +161,20 @@ docker-compose PostgreSQL; CI workflow; design docs.
 - [x] A failure inside any rule, or a failed verification, ⇒ refusal. In backtests, a refused decision places no orders.
 - [x] The backtester and research use the same chain. Future-poisoning tests still hold with the risk engine on.
 
-### M8 — Persistence
-**Acceptance:** SQLAlchemy models + Alembic migrations for DATABASE.md; repositories with integration tests against real PostgreSQL (docker); "explain decision" query returns the full chain for a cycle; DB-down ⇒ order intents cannot be created (tested).
+### M8 — Persistence ✅
+**Deliverables** (see [DATABASE.md](DATABASE.md#implementation-notes-m8)):
+- SQLAlchemy models for all 28 tables, and an Alembic migration with append-only and order-safety triggers.
+- Transactional repositories and the "explain decision" query.
+- Trading-layer record mapping and the guarded order repository.
+- `DatabaseCheck` in the pre-trade gate.
+- `aq db upgrade | status | explain`.
+- A PostgreSQL service in CI.
+
+**Acceptance:**
+- [x] SQLAlchemy models and Alembic migrations for DATABASE.md. The migration equals the models (no drift) and is reversible.
+- [x] Repositories with integration tests against real PostgreSQL: a temporary cluster locally, a service container in CI.
+- [x] The "explain decision" query returns the full chain for a cycle: config, pre-trade checks, target, risk adjustments, proposal, ensemble, signals, orders, events and executions.
+- [x] DB down ⇒ order intents cannot be created (tested with an unreachable server and with a database taken down mid-session); the pre-trade gate refuses.
 
 ### M9 — Broker, OMS, reconciliation
 **Acceptance:** Alpaca paper adapter; simulated broker for tests with fault injection; integration tests for: API timeout, duplicate submission, partial fill, rejection, restart mid-trade, unexpected position, existing unknown order, zero/insufficient buying power, price spike, large gap; the 1,500/1,000/500 example yields no order; reconciliation halts on discrepancy.

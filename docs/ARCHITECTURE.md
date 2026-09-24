@@ -259,10 +259,17 @@ class OrderManager:
 class Reconciler:
     def reconcile(self, expected: PortfolioState, broker: BrokerAdapter) -> ReconciliationReport: ...
 
-# persistence (M8) --------------------------------------------------------------
-class AuditRepository(Protocol):
-    def record_decision(self, record: DecisionRecord) -> None: ...
-    def record_order_intent(self, req: OrderRequest) -> None: ...   # BEFORE transmission
+```
+
+Implemented in M8 (`persistence/`, see [DATABASE.md](DATABASE.md#implementation-notes-m8)):
+
+```python
+class CycleRepository:
+    def record_decision(self, rec: DecisionRecord, config_version: str) -> None: ...  # atomic
+class OrderRepository:                    # built by trading.audit.order_repository (state-machine guard)
+    def create_intent(self, cycle_id: str, req: OrderRequest, at: datetime) -> None: ...  # BEFORE transmission
+    def transition(self, client_order_id: str, update: OrderUpdate) -> str: ...
+def explain_decision(db: Database, cycle_id: str) -> dict[str, Any]: ...
 ```
 
 ## 6. Future options module (not in v1)
