@@ -13,8 +13,8 @@ risk are grouped (M7) because they share the target-portfolio contract.
 |---|---|---|
 | 1 | Foundation: repo, configuration, core domain, safety primitives, CLI, CI | **done** |
 | 2 | Market data: providers, calendar, validation, Parquet store, synthetic LETF | **done** |
-| 3 | Indicator engine | next |
-| 4 | Strategy interface + candidate catalogue | |
+| 3 | Indicator engine | **done** |
+| 4 | Strategy interface + candidate catalogue | next |
 | 5 | Backtesting engine + performance analytics + reports | |
 | 6 | Research robustness: sensitivity, walk-forward, Monte Carlo, DSR/PBO, ranking, governance registry | |
 | 7 | Ensemble + portfolio allocation + risk engine | |
@@ -69,8 +69,18 @@ docker-compose PostgreSQL; CI workflow; design docs.
 - [x] `aq data download`, `validate`, `list` and `synthesize` commands, tested end-to-end.
 - [x] Staleness/validity wired into the pre-trade gate (`market_data_missing | invalid | stale`).
 
-### M3 — Indicators
-**Acceptance:** all listed indicators; each tested against hand-computed values; *no-look-ahead property test*: value at t computed on data[:t] equals value from full series; warm-up periods return NaN, never partial values.
+### M3 — Indicators ✅
+**Deliverables** (see [INDICATORS.md](INDICATORS.md)):
+- 21 indicator kinds as pure causal functions.
+- A validated `IndicatorSpec` registry: every kind declares its warm-up, and specs are checked when created.
+- `IndicatorEngine`, with full-history computation and point-in-time snapshots.
+
+**Acceptance:**
+- [x] All listed indicators: SMA, EMA, rate of change, momentum, RSI, ATR, historical volatility, rolling std, Bollinger Bands and width (plus %B), distance from MA, rolling highs/lows, drawdown, rolling Sharpe, volatility percentile, trend slope, momentum acceleration. Also: true range, rolling z-score, trend R², drawdown duration.
+- [x] Each is tested against hand-computed values, and against slow reference loops on random data.
+- [x] No look-ahead, shown two ways for every registered kind (34 configurations): truncating history leaves past values identical, and perturbing the future leaves the past unchanged. A test fails if a new kind is added without coverage.
+- [x] Warm-up returns NaN, never partial values. Declared warm-ups are verified; the first value needs exactly warm-up + 1 rows; chained indicators propagate warm-up.
+- [x] Snapshots are point-in-time by construction (a poisoned future cannot influence them).
 
 ### M4 — Strategies
 **Acceptance:** `Strategy` ABC + registry; ~20 candidates across all families; every strategy passes a shared contract test suite (scores in range, deterministic, no look-ahead, readable reason, warm-up respected, handles missing optional NDX data); config parameters validated against each strategy's parameter schema.

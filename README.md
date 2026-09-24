@@ -17,7 +17,8 @@ Built milestone by milestone — see [docs/ROADMAP.md](docs/ROADMAP.md).
 |---|---|
 | Foundation: configuration, safety primitives, domain model, CLI (M1) | ✅ done |
 | Market data: calendar, providers, validation, storage, synthetic history (M2) | ✅ done |
-| Indicators, strategies, backtesting, research (M3–M6) | planned |
+| Indicator library: 21 point-in-time indicators with look-ahead tests (M3) | ✅ done |
+| Strategies, backtesting, research (M4–M6) | planned |
 | Ensemble, risk engine, persistence, broker/OMS, scheduler (M7–M10) | planned |
 | API, dashboard, deployment (M11–M13) | planned |
 
@@ -33,6 +34,7 @@ Sections below marked *(Milestone N)* describe commands that do not exist yet.
 | [RISK_MANAGEMENT.md](docs/RISK_MANAGEMENT.md) | the independent risk engine |
 | [PAPER_TRADING.md](docs/PAPER_TRADING.md) | trading cycle, order management, reconciliation, shadow mode |
 | [DATA.md](docs/DATA.md) | market data: conventions, providers, validation, storage, synthetic history |
+| [INDICATORS.md](docs/INDICATORS.md) | indicator definitions, warm-up, point-in-time guarantees |
 | [DATABASE.md](docs/DATABASE.md) | audit-trail schema |
 | [SAFETY.md](docs/SAFETY.md) | kill switch, refusal conditions, live-trading lock |
 | [ROADMAP.md](docs/ROADMAP.md) | milestones and acceptance criteria |
@@ -160,7 +162,7 @@ make validate    # validate every shipped environment
 ## Project layout
 
 ```
-src/adaptive_quant/   core, config, observability, governance, notifications, quant/data, trading/…
+src/adaptive_quant/   core, config, observability, governance, notifications, quant/{data,indicators}, trading/…
 config/               YAML configuration
 tests/                unit / integration / regression
 docs/                 design and operating documentation

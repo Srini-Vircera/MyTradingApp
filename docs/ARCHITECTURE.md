@@ -94,7 +94,7 @@ MyTradingApp/                      (the repo; the platform is called "adaptive-q
 │   ├── notifications/             event taxonomy, router, channels                    [M1 contract, M10 email]
 │   ├── quant/
 │   │   ├── data/                  calendar, bars, providers, validation, store, synthetic  [M2]
-│   │   ├── indicators/            point-in-time indicator library                    [M3]
+│   │   ├── indicators/            causal indicator functions, spec registry, engine  [M3]
 │   │   ├── strategies/            Strategy interface + candidate catalogue           [M4]
 │   │   ├── backtest/              event loop, execution & cost models                [M5]
 │   │   ├── analytics/             metrics, reports, charts                           [M5]
@@ -168,15 +168,23 @@ class MarketDataView:                                # view.py - the only way st
     def data_timestamp(self, symbol: str) -> datetime: ...
 ```
 
+Implemented in M3 (`quant/indicators`, see [INDICATORS.md](INDICATORS.md)):
+
+```python
+@dataclass(frozen=True)
+class IndicatorSpec:                                 # specs.py - validated at construction
+    kind: str; params: Mapping[str, ParamValue]; source: str | None; name: str
+    warmup: int                                      # leading NaN rows (verified by tests)
+    def compute(self, bars: pd.DataFrame) -> pd.Series: ...   # value at t uses rows <= t only
+
+class IndicatorEngine:                               # engine.py
+    def compute(self, bars) -> pd.DataFrame: ...                          # whole history
+    def snapshot_view(self, view: MarketDataView, symbol) -> IndicatorSnapshot: ...  # as of view.as_of
+```
+
 Specified here, implemented in later milestones:
 
 ```python
-# quant/indicators (M3) ---------------------------------------------------------
-class Indicator(Protocol):
-    name: str
-    lookback: int                                   # bars required before first valid value
-    def compute(self, bars: pd.DataFrame) -> pd.Series: ...   # value at t uses rows <= t only
-
 # quant/strategies (M4) ---------------------------------------------------------
 class Strategy(ABC):
     id: str; version: str; family: StrategyFamily; params: Mapping[str, ParamValue]
