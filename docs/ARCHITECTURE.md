@@ -95,7 +95,7 @@ MyTradingApp/                      (the repo; the platform is called "adaptive-q
 │   ├── quant/
 │   │   ├── data/                  calendar, bars, providers, validation, store, synthetic  [M2]
 │   │   ├── indicators/            causal indicator functions, spec registry, engine  [M3]
-│   │   ├── strategies/            Strategy interface + candidate catalogue           [M4]
+│   │   ├── strategies/            Strategy base, 22 candidates, catalogue, runner   [M4]
 │   │   ├── backtest/              event loop, execution & cost models                [M5]
 │   │   ├── analytics/             metrics, reports, charts                           [M5]
 │   │   ├── optimization/          sensitivity, walk-forward, Monte Carlo, DSR/PBO    [M6]
@@ -182,15 +182,25 @@ class IndicatorEngine:                               # engine.py
     def snapshot_view(self, view: MarketDataView, symbol) -> IndicatorSnapshot: ...  # as of view.as_of
 ```
 
+Implemented in M4 (`quant/strategies`, see [STRATEGIES.md](STRATEGIES.md)):
+
+```python
+class Strategy(ABC):                                 # base.py
+    implementation: ClassVar[str]; family: ClassVar[StrategyFamily]; version: ClassVar[str]
+    param_specs: ClassVar[tuple[ParamSpec, ...]]     # typed, bounded, validated at construction
+    def indicators(self) -> list[IndicatorSpec]: ...                 # declares warm-up
+    def evaluate(self, ctx: StrategyContext) -> Evaluation: ...      # the only strategy-specific logic
+    def generate_signal(self, view: MarketDataView) -> StrategySignal: ...  # final; owns all checks
+
+class StrategyCatalog:                               # catalog.py - config -> strategies + versions
+    def eligible(self, mode: TradingMode) -> list[Strategy]: ...    # live => live_approved only
+
+def run_strategies(strategies, view) -> SignalBatch: ...            # runner.py - fails closed
+```
+
 Specified here, implemented in later milestones:
 
 ```python
-# quant/strategies (M4) ---------------------------------------------------------
-class Strategy(ABC):
-    id: str; version: str; family: StrategyFamily; params: Mapping[str, ParamValue]
-    def warmup_bars(self) -> int: ...
-    def generate_signal(self, data: MarketDataView) -> StrategySignal: ...
-
 # quant/ensemble + portfolio + risk (M7) ----------------------------------------
 class EnsembleEngine:
     def combine(self, signals: Sequence[StrategySignal], weights: StrategyWeights) -> EnsembleScore: ...

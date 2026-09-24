@@ -30,6 +30,14 @@ with a list of *every* missing item.
 - [ ] Alerts verified end-to-end (email received).
 - [ ] Start with a small allocation; understand that historical results are hypothetical.
 
+## Strategy governance
+
+- **Live mode:** only strategies in lifecycle `live_approved` can produce signals there (`StrategyCatalog.eligible`).
+- **Approval in config:** declaring `live_approved` requires an `approval` block with the approver, date and a written justification.
+- **Paper and shadow modes:** these require lifecycle ≥ `paper`.
+- **Shipped config:** it has no strategy eligible outside research.
+- **Failures:** a strategy that fails, isn't warmed up, or produces an out-of-range output blocks trading (`signal_failure`).
+
 ## Kill switch
 
 ```bash

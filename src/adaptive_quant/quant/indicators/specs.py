@@ -29,6 +29,7 @@ from adaptive_quant.quant.indicators import volatility as vol
 ParamValue = int | float | str | bool | None
 Params = Mapping[str, ParamValue]
 _PRICE_COLUMNS = ("open", "high", "low", "close")
+_SOURCES = (*_PRICE_COLUMNS, "volume")
 
 
 @dataclass(frozen=True)
@@ -256,8 +257,8 @@ class IndicatorSpec:
         resolved = MappingProxyType({**definition.defaults, **self.params})
         object.__setattr__(self, "params", resolved)
         source = self.source or definition.default_source
-        if source not in _PRICE_COLUMNS:
-            raise ValueError(f"{self.kind}: source must be one of {_PRICE_COLUMNS}")
+        if source not in _SOURCES:
+            raise ValueError(f"{self.kind}: source must be one of {_SOURCES}")
         object.__setattr__(self, "source", source)
         if not self.name:
             object.__setattr__(self, "name", _default_name(self.kind, resolved, source, definition))

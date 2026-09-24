@@ -12,13 +12,14 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from adaptive_quant import __version__, cli_data
+from adaptive_quant import __version__, cli_data, cli_strategies
 from adaptive_quant.config.loader import LoadedConfig, load_config
 from adaptive_quant.config.schema import redact
 from adaptive_quant.config.secrets import Secrets, load_secrets
 from adaptive_quant.core.clock import Clock, SystemClock, to_market_time
 from adaptive_quant.core.errors import AQError
 from adaptive_quant.observability.logging import configure_logging
+from adaptive_quant.quant.strategies.catalog import StrategyCatalog
 from adaptive_quant.trading.safety.kill_switch import (
     RELEASE_CONFIRMATION,
     FileKillSwitchStore,
@@ -70,6 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
     rel.add_argument("--confirm", required=True, help=f"must be exactly: {RELEASE_CONFIRMATION!r}")
 
     cli_data.register(sub)
+    cli_strategies.register(sub)
     return parser
 
 
@@ -101,6 +103,8 @@ def _dispatch(args: argparse.Namespace, clock: Clock) -> int:
         return _kill_switch(args, loaded, clock)
     if args.command == "data":
         return cli_data.run(args, loaded, secrets, clock)
+    if args.command == "strategies":
+        return cli_strategies.run(args, loaded, clock)
     raise AssertionError(f"unhandled command {args.command}")  # pragma: no cover
 
 
@@ -114,6 +118,7 @@ def _config(args: argparse.Namespace, loaded: LoadedConfig, secrets: Secrets) ->
         }
         print(json.dumps(payload, indent=2))
         return EXIT_OK
+    catalog = StrategyCatalog.from_config(s.strategies)  # validates every strategy + grid
     for group in args.require_secrets:
         secrets.require(*SECRET_GROUPS[group])
     print(f"OK  configuration is valid ({loaded.config_version})")
@@ -123,6 +128,10 @@ def _config(args: argparse.Namespace, loaded: LoadedConfig, secrets: Secrets) ->
         + ("   <-- REAL MONEY" if s.trading.mode.uses_real_money else "")
     )
     print(f"    tradeable   : {', '.join(s.universe.tradeable_symbols)}")
+    print(
+        f"    strategies  : {len(catalog)} valid, {len(catalog.eligible(s.trading.mode))} "
+        f"eligible in {s.trading.mode} mode"
+    )
     for warning in loaded.warnings:
         print(f"WARN {warning}")
     return EXIT_OK

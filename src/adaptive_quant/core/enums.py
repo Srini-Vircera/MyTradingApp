@@ -112,6 +112,7 @@ class StrategyFamily(StrEnum):
     MARKET_EXTENSION = "market_extension"
     DRAWDOWN_AWARE = "drawdown_aware"
     REGIME_TRANSITION = "regime_transition"
+    BENCHMARK = "benchmark"  # baselines every candidate must beat (buy & hold, cash)
 
 
 class StrategyLifecycle(StrEnum):

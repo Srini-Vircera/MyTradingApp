@@ -30,6 +30,7 @@ from adaptive_quant.core.enums import (
     TradingMode,
 )
 from adaptive_quant.core.models import Instrument
+from adaptive_quant.governance.lifecycle import MIN_JUSTIFICATION_CHARS
 
 #: The exact sentence an operator must type into ``trading.live_trading.acknowledgement``.
 LIVE_TRADING_ACKNOWLEDGEMENT = "I understand that live mode trades real money"
@@ -353,17 +354,49 @@ class RiskConfig(Section):
 ParamValue = int | float | str | bool
 
 
+class StrategyApproval(Section):
+    """Written human approval; required to declare a strategy ``live_approved``."""
+
+    approved_by: str = Field(min_length=1)
+    approved_on: date
+    justification: str
+
+    @field_validator("justification")
+    @classmethod
+    def _justify(cls, v: str) -> str:
+        if len(v.strip()) < MIN_JUSTIFICATION_CHARS:
+            raise ValueError(
+                f"approval justification must be at least {MIN_JUSTIFICATION_CHARS} characters"
+            )
+        return v.strip()
+
+
 class StrategyEntry(Section):
     id: str = Field(pattern=r"^[a-z0-9_]+$")
+    implementation: str | None = Field(
+        default=None,
+        pattern=r"^[a-z0-9_]+$",
+        description="Registered strategy class; defaults to the id.",
+    )
     family: StrategyFamily
     enabled: bool = True
     lifecycle: StrategyLifecycle = StrategyLifecycle.RESEARCH
+    approval: StrategyApproval | None = None
     params: dict[str, ParamValue] = Field(default_factory=dict)
     param_grid: dict[str, list[ParamValue]] = Field(default_factory=dict)
     notes: str = ""
 
+    @property
+    def implementation_name(self) -> str:
+        return self.implementation or self.id
+
     @model_validator(mode="after")
     def _check(self) -> Self:
+        if self.lifecycle is StrategyLifecycle.LIVE_APPROVED and self.approval is None:
+            raise ValueError(
+                f"{self.id}: lifecycle live_approved requires an 'approval' block "
+                "(approved_by, approved_on, justification) written by a human"
+            )
         for key, values in self.param_grid.items():
             if not values:
                 raise ValueError(f"{self.id}: param_grid[{key!r}] is empty")

@@ -82,5 +82,13 @@ class RiskError(AQError):
     """Risk calculation failed. Treated as a refusal to trade (fail closed)."""
 
 
+class StrategyError(AQError):
+    """A strategy could not produce a valid signal. Treated as a refusal to trade."""
+
+
+class InsufficientHistoryError(StrategyError):
+    """Not enough point-in-time history for the strategy's warm-up."""
+
+
 class GovernanceError(AQError):
     """A strategy lifecycle transition is not permitted."""

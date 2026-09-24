@@ -32,7 +32,7 @@ class TestSpecs:
             ("sma", {"period": 5}, None, "unknown parameter"),
             ("sma", {"window": 0}, None, "window"),
             ("sma", {"window": "20"}, None, "integer"),
-            ("sma", {"window": 5}, "volume", "source"),
+            ("sma", {"window": 5}, "vwap", "source"),
             ("bollinger", {"output": "mid"}, None, "output"),
             ("bollinger", {"num_std": "2"}, None, "number"),
             ("rolling_high", {"include_current": 1}, None, "true/false"),
@@ -50,6 +50,12 @@ class TestSpecs:
         with pytest.raises(TypeError):
             spec.params["window"] = 6  # type: ignore[index]
         assert spec.warmup == 4
+
+    def test_volume_source_for_volume_confirmation(self) -> None:
+        spec = IndicatorSpec("sma", {"window": 3}, source="volume")
+        assert spec.name == "sma_3_volume"
+        out = spec.compute(BARS)
+        assert out.iloc[2] == pytest.approx(BARS["volume"].iloc[:3].mean())
 
     def test_registry_describes_every_kind(self) -> None:
         assert all(d.description for d in REGISTRY.values())

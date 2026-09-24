@@ -18,7 +18,8 @@ Built milestone by milestone — see [docs/ROADMAP.md](docs/ROADMAP.md).
 | Foundation: configuration, safety primitives, domain model, CLI (M1) | ✅ done |
 | Market data: calendar, providers, validation, storage, synthetic history (M2) | ✅ done |
 | Indicator library: 21 point-in-time indicators with look-ahead tests (M3) | ✅ done |
-| Strategies, backtesting, research (M4–M6) | planned |
+| Strategies: 20 candidates + 2 benchmarks, governance, research signals (M4) | ✅ done |
+| Backtesting, research robustness (M5–M6) | planned |
 | Ensemble, risk engine, persistence, broker/OMS, scheduler (M7–M10) | planned |
 | API, dashboard, deployment (M11–M13) | planned |
 
@@ -35,6 +36,7 @@ Sections below marked *(Milestone N)* describe commands that do not exist yet.
 | [PAPER_TRADING.md](docs/PAPER_TRADING.md) | trading cycle, order management, reconciliation, shadow mode |
 | [DATA.md](docs/DATA.md) | market data: conventions, providers, validation, storage, synthetic history |
 | [INDICATORS.md](docs/INDICATORS.md) | indicator definitions, warm-up, point-in-time guarantees |
+| [STRATEGIES.md](docs/STRATEGIES.md) | strategy contract, catalogue, governance, research signals |
 | [DATABASE.md](docs/DATABASE.md) | audit-trail schema |
 | [SAFETY.md](docs/SAFETY.md) | kill switch, refusal conditions, live-trading lock |
 | [ROADMAP.md](docs/ROADMAP.md) | milestones and acceptance criteria |
@@ -129,7 +131,18 @@ aq data synthesize               # synthetic pre-2010 TQQQ/SQQQ + tracking-error
 Data that fails validation is stored for inspection but never used. Downloads
 are idempotent, so re-running them is always safe.
 
-## 6. Research and trading workflows *(Milestones 3–13)*
+## 6. Strategies (research only)
+
+```bash
+aq strategies list                         # 22 configured strategies, versions, warm-up
+aq strategies validate                     # config/strategies.yaml against each strategy's schema
+aq strategies signals --as-of 2024-06-28   # signals from stored data - places NO orders
+```
+
+- **Lifecycle:** every strategy starts in `research`. Paper and live modes run only strategies a human has promoted; `live_approved` needs a written approval in the config. See [docs/STRATEGIES.md](docs/STRATEGIES.md).
+- **Hypotheses only:** none of these strategies has been shown to work yet.
+
+## 7. Research and trading workflows *(Milestones 5–13)*
 
 | Task | Command (planned) | Milestone |
 |---|---|---|
@@ -140,7 +153,7 @@ are idempotent, so re-running them is always safe.
 | Paper trading | `aq --env paper trade run` | 10 |
 | Shadow mode | set `trading.mode: shadow`, then `aq trade run` | 10 |
 
-## 7. Logs
+## 8. Logs
 
 Structured logs go to stderr — JSON in paper/production, readable console
 output in development (`logging.format`). Every record carries a UTC timestamp
@@ -148,7 +161,7 @@ and, once trading runs exist, `run_id` and `config_version`. Secret-looking
 fields are redacted. The kill-switch audit trail is
 `var/state/kill_switch_audit.jsonl`.
 
-## 8. Tests and quality checks
+## 9. Tests and quality checks
 
 ```bash
 make test        # pytest
@@ -162,7 +175,7 @@ make validate    # validate every shipped environment
 ## Project layout
 
 ```
-src/adaptive_quant/   core, config, observability, governance, notifications, quant/{data,indicators}, trading/…
+src/adaptive_quant/   core, config, observability, governance, notifications, quant/{data,indicators,strategies}, trading/…
 config/               YAML configuration
 tests/                unit / integration / regression
 docs/                 design and operating documentation

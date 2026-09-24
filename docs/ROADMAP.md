@@ -14,8 +14,8 @@ risk are grouped (M7) because they share the target-portfolio contract.
 | 1 | Foundation: repo, configuration, core domain, safety primitives, CLI, CI | **done** |
 | 2 | Market data: providers, calendar, validation, Parquet store, synthetic LETF | **done** |
 | 3 | Indicator engine | **done** |
-| 4 | Strategy interface + candidate catalogue | next |
-| 5 | Backtesting engine + performance analytics + reports | |
+| 4 | Strategy interface + candidate catalogue | **done** |
+| 5 | Backtesting engine + performance analytics + reports | next |
 | 6 | Research robustness: sensitivity, walk-forward, Monte Carlo, DSR/PBO, ranking, governance registry | |
 | 7 | Ensemble + portfolio allocation + risk engine | |
 | 8 | PostgreSQL persistence + audit trail | |
@@ -82,8 +82,22 @@ docker-compose PostgreSQL; CI workflow; design docs.
 - [x] Warm-up returns NaN, never partial values. Declared warm-ups are verified; the first value needs exactly warm-up + 1 rows; chained indicators propagate warm-up.
 - [x] Snapshots are point-in-time by construction (a poisoned future cannot influence them).
 
-### M4 — Strategies
-**Acceptance:** `Strategy` ABC + registry; ~20 candidates across all families; every strategy passes a shared contract test suite (scores in range, deterministic, no look-ahead, readable reason, warm-up respected, handles missing optional NDX data); config parameters validated against each strategy's parameter schema.
+### M4 — Strategies ✅
+**Deliverables** (see [STRATEGIES.md](STRATEGIES.md)):
+- A `Strategy` base class. It owns point-in-time access, warm-up, output validation and long/short restrictions.
+- A typed and bounded parameter schema, and a registry.
+- 20 candidates plus 2 benchmarks, covering all 15 families.
+- A `StrategyCatalog` built from config: validated params and param grids, `version_id` fingerprints, and lifecycle eligibility by trading mode.
+- A written-approval requirement for `live_approved`.
+- A fail-closed signal runner, with `SignalGenerationCheck` in the pre-trade gate.
+- `aq strategies list | validate | signals`, which is research-only.
+
+**Acceptance:**
+- [x] `Strategy` ABC and registry; 22 implementations across every `StrategyFamily`.
+- [x] A shared contract suite for every strategy: scores in range and consistent with direction, deterministic, no look-ahead (future-data poisoning, truncation, intraday evaluation before the close), exact warm-up, missing or short optional NDX data, readable reason, exposure within its own limits.
+- [x] Configured parameters and every param-grid value are validated against each strategy's schema; errors are aggregated.
+- [x] Governance: live mode can only use `live_approved` strategies; `live_approved` requires a written human approval; shipped config has none eligible outside research.
+- [x] Static safety test: `quant/*` never imports `trading/*`; strategies and indicators never import network, provider, store or secrets code.
 
 ### M5 — Backtesting & analytics
 **Acceptance:** event-driven engine using the real risk-engine interface; four explicit execution-timing models; costs (commission, spread, slippage, impact, delay, partial fills); golden-number regression tests for every metric; benchmarks SPY/QQQ/TQQQ/cash; HTML report with all listed charts; test proving same-bar close execution is impossible unless `closing_auction` is selected.
