@@ -9,11 +9,7 @@ hypothetical until validated in paper trading.
 * **Sources:** daily OHLCV for QQQ, TQQQ, SQQQ, SPY; NDX where available; intraday bars for the near-close proxy.
 * **Adjusted vs. unadjusted:** signals use split/dividend-*adjusted* series (total-return consistent); order sizing and fills use *unadjusted* prices as the broker sees them. Both are stored.
 * **Validation:** missing sessions vs. exchange calendar, duplicates, non-positive or impossible prices (high < low, close outside [low, high]), out-of-order timestamps, suspicious jumps (|return| > `data.max_abs_daily_return` without a corporate action), staleness.
-* **Synthetic leveraged history.** Before TQQQ/SQQQ inception (Feb 2010) returns are synthesised *daily* from the underlying:
-
-  `r_LETF(t) = L · r_under(t) − expense_ratio/252 − (L − 1) · (rf(t) + swap_spread)/252`
-
-  where `rf` is the daily risk-free rate. For TQQQ (L = 3) the fund pays financing on 2× borrowed notional; for SQQQ (L = −3) the same formula yields a financing *credit* on 4× (collateral plus short swap), reduced by the swap spread. `swap_spread` is a configurable assumption, calibrated on the real overlap period. Daily compounding makes volatility drag appear naturally. The series is calibrated on the overlapping real period (tracking-error report) and **stored under a separate `synthetic` source tag**. Reports always show synthetic and real periods separately.
+* **Synthetic leveraged history.** Before the TQQQ/SQQQ inception (Feb 2010), returns are synthesised *daily* from the underlying's price return. The fund's expense ratio, the financing on the leveraged notional (TQQQ pays on 2×, SQQQ earns a credit on 4×) and a swap spread are all accrued per calendar day. Daily compounding makes volatility drag appear naturally. The exact formula, assumptions and tracking-error check are in [DATA.md](DATA.md#synthetic-leveraged-etf-history). The series is stored under a separate `synthetic` source, flagged per row, and used only if its tracking error against the real fund over the overlap is within the configured bound. Reports always show synthetic and real periods separately.
 * **Survivorship:** the v1 universe is fixed ETFs, so survivorship bias is minor; the pre-inception period is the real issue and is handled above.
 
 ## 2. Candidate strategy catalogue (M4)

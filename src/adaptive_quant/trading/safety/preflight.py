@@ -37,6 +37,7 @@ class RefusalReason(StrEnum):
 
     MARKET_DATA_STALE = "market_data_stale"
     MARKET_DATA_MISSING = "market_data_missing"
+    MARKET_DATA_INVALID = "market_data_invalid"
     BROKER_UNAVAILABLE = "broker_unavailable"
     POSITIONS_UNCONFIRMED = "positions_unconfirmed"
     EQUITY_UNCONFIRMED = "equity_unconfirmed"

@@ -1,0 +1,11 @@
+{
+  "results": [
+    {"cash_amount": 0.0127, "currency": "USD", "declaration_date": "2023-12-19", "dividend_type": "CD",
+     "ex_dividend_date": "2023-12-20", "frequency": 4, "id": "Ea1", "pay_date": "2023-12-27",
+     "record_date": "2023-12-21", "ticker": "TQQQ"},
+    {"cash_amount": 0, "currency": "USD", "dividend_type": "CD",
+     "ex_dividend_date": "2023-09-20", "frequency": 4, "id": "Ea0", "ticker": "TQQQ"}
+  ],
+  "status": "OK",
+  "request_id": "d1"
+}

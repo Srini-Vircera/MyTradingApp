@@ -48,6 +48,14 @@ class Secrets(BaseSettings):
                 hint="copy .env.example to .env and fill them in, or export them in your shell",
             )
 
+    def secret(self, name: str) -> SecretStr:
+        """Return one required secret, raising :class:`MissingSecretError` if unset."""
+        self.require(name)
+        value = getattr(self, name)
+        if not isinstance(value, SecretStr):  # pragma: no cover - guaranteed by require()
+            raise MissingSecretError(f"secret {name} is not set")
+        return value
+
     def present(self) -> dict[str, bool]:
         """Which secrets are set (never their values) - safe to log or display."""
         return {

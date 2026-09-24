@@ -48,12 +48,39 @@ universe:
 
 data:
   root_dir: var/data
-  primary_provider: csv
-  fallback_providers: []
+  # file | alpaca | polygon. "file" reads CSV/Parquet from data.file_import.directory
+  # and needs no API key; alpaca/polygon need keys in .env.
+  primary_provider: file
+  history_start: 1999-03-10          # QQQ's first trading day
   staleness:
     max_daily_bar_age_sessions: 1
     max_intraday_bar_age_seconds: 180
-  max_abs_daily_return: 0.5
+  max_abs_daily_return: 0.5          # larger close-to-close moves are flagged for review
+  http:
+    max_retries: 3
+    backoff_seconds: 1.0
+  file_import:
+    directory: var/data/import
+    adjustment: raw                  # raw | split | all - what the files contain
+  polygon:
+    base_url: https://api.polygon.io
+    request_timeout_seconds: 15
+    symbol_map: {NDX: "I:NDX"}      # index tickers need Polygon's I: prefix
+
+  # Synthetic leveraged-ETF history before real inception. ASSUMPTIONS - verify
+  # expense ratios against current prospectuses and supply a risk-free series
+  # (e.g. FRED DTB3 CSV) for realistic financing costs. See docs/DATA.md.
+  synthetic:
+    underlying_symbol: QQQ
+    underlying_expense_addback: 0.0020   # QQQ expense ratio: QQQ price return -> index return
+    swap_spread_annual: 0.0              # extra swap financing spread; calibrate on the overlap
+    risk_free:
+      constant_annual_rate: 0.02         # fallback only; recorded on every synthetic snapshot
+      csv_path: null                     # e.g. var/data/import/DTB3.csv
+    max_tracking_error_annual: 0.03      # synthetic vs real on the overlap must be within this
+    products:
+      TQQQ: {expense_ratio: 0.0084, inception: 2010-02-11}
+      SQQQ: {expense_ratio: 0.0095, inception: 2010-02-11}
 
 schedule:
   timezone: America/New_York

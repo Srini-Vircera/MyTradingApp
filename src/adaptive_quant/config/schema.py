@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 import re
+from datetime import date
 from itertools import pairwise
 from pathlib import Path
 from typing import Annotated, Any, Self
@@ -126,15 +127,64 @@ class StalenessConfig(Section):
     max_intraday_bar_age_seconds: int = Field(default=180, gt=0)
 
 
+class FileImportConfig(Section):
+    """Local CSV/Parquet datasets (``aq data download --provider file``)."""
+
+    directory: Path = Path("var/data/import")
+    adjustment: str = Field(default="raw", pattern="^(raw|split|all)$")
+
+
+class PolygonConfig(Section):
+    base_url: str = "https://api.polygon.io"
+    request_timeout_seconds: PositiveFloat = 15.0
+    symbol_map: dict[str, str] = Field(default_factory=dict)
+
+
+class HttpRetryConfig(Section):
+    max_retries: int = Field(default=3, ge=0, le=10)
+    backoff_seconds: Annotated[float, Field(ge=0.0, le=60.0)] = 1.0
+
+
+class RiskFreeConfig(Section):
+    """Annual risk-free rate for synthetic financing costs.
+
+    ``csv_path`` (e.g. FRED DTB3, percent) is preferred; the constant is a
+    fallback and is recorded as an assumption on every synthetic snapshot.
+    """
+
+    constant_annual_rate: Annotated[float, Field(ge=-0.05, le=0.25)] = 0.02
+    csv_path: Path | None = None
+
+
+class SyntheticProductConfig(Section):
+    expense_ratio: Annotated[float, Field(ge=0.0, le=0.05)]
+    inception: date
+
+
+class SyntheticConfig(Section):
+    """Assumptions for synthetic leveraged-ETF history (see docs/DATA.md)."""
+
+    underlying_symbol: str = "QQQ"
+    underlying_expense_addback: Annotated[float, Field(ge=0.0, le=0.02)] = 0.0020
+    swap_spread_annual: Annotated[float, Field(ge=0.0, le=0.05)] = 0.0
+    risk_free: RiskFreeConfig = RiskFreeConfig()
+    max_tracking_error_annual: Annotated[float, Field(gt=0.0, le=0.5)] = 0.03
+    products: dict[str, SyntheticProductConfig] = Field(default_factory=dict)
+
+
 class DataConfig(Section):
     root_dir: Path = Path("var/data")
-    primary_provider: str = Field(default="csv", pattern="^(csv|parquet|alpaca|polygon)$")
-    fallback_providers: list[str] = Field(default_factory=list)
+    primary_provider: str = Field(default="file", pattern="^(file|alpaca|polygon)$")
+    history_start: date = date(1999, 3, 10)  # QQQ's first trading day
     staleness: StalenessConfig = StalenessConfig()
     max_abs_daily_return: PositiveFloat = Field(
         default=0.5,
         description="Bars whose close-to-close move exceeds this are flagged as suspect.",
     )
+    http: HttpRetryConfig = HttpRetryConfig()
+    file_import: FileImportConfig = FileImportConfig()
+    polygon: PolygonConfig = PolygonConfig()
+    synthetic: SyntheticConfig = SyntheticConfig()
 
 
 # ============================================================ schedule
@@ -376,7 +426,29 @@ class Settings(Section):
                 raise ValueError(f"invalid benchmark symbol {symbol!r}")
         if any(i.asset_class is AssetClass.CASH for i in self.universe.instruments):
             raise ValueError("cash is implicit; do not declare it as an instrument")
+        self._check_synthetic()
         return self
+
+    def _check_synthetic(self) -> None:
+        syn = self.data.synthetic
+        instruments = self.universe.by_symbol
+        if syn.underlying_symbol not in instruments:
+            raise ValueError(
+                f"data.synthetic.underlying_symbol {syn.underlying_symbol!r} is not an instrument"
+            )
+        for symbol, product in syn.products.items():
+            inst = instruments.get(symbol)
+            if inst is None or not inst.is_leveraged:
+                raise ValueError(
+                    f"data.synthetic.products: {symbol!r} is not a leveraged instrument"
+                )
+            if inst.underlying != syn.underlying_symbol:
+                raise ValueError(
+                    f"data.synthetic.products: {symbol} tracks {inst.underlying}, "
+                    f"not {syn.underlying_symbol}"
+                )
+            if product.inception <= self.data.history_start:
+                raise ValueError(f"{symbol}: inception must be after data.history_start")
 
 
 def redact(data: Any) -> Any:

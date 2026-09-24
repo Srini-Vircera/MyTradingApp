@@ -12,8 +12,8 @@ risk are grouped (M7) because they share the target-portfolio contract.
 | M | Scope | Status |
 |---|---|---|
 | 1 | Foundation: repo, configuration, core domain, safety primitives, CLI, CI | **done** |
-| 2 | Market data: providers, calendar, validation, Parquet store, synthetic LETF | next |
-| 3 | Indicator engine | |
+| 2 | Market data: providers, calendar, validation, Parquet store, synthetic LETF | **done** |
+| 3 | Indicator engine | next |
 | 4 | Strategy interface + candidate catalogue | |
 | 5 | Backtesting engine + performance analytics + reports | |
 | 6 | Research robustness: sensitivity, walk-forward, Monte Carlo, DSR/PBO, ranking, governance registry | |
@@ -44,8 +44,30 @@ docker-compose PostgreSQL; CI workflow; design docs.
 - [x] No automated promotion beyond VALIDATED.
 - [x] ≥ 90% line coverage on M1 code; ruff + mypy strict clean.
 
-### M2 — Market data
-**Acceptance:** provider interface with CSV/Parquet, Alpaca and Polygon adapters (network adapters tested against recorded fixtures); NYSE calendar incl. holidays and early closes; validator detects every listed defect class (one test per class); Parquet store is idempotent and versioned by content hash; adjusted/unadjusted both stored; synthetic TQQQ/SQQQ reproduces real ETF daily returns over the overlap within a documented tracking-error bound and is always tagged `synthetic`; `aq data download` and `aq data validate` commands.
+### M2 — Market data ✅
+**Deliverables** (see [DATA.md](DATA.md)):
+- NYSE trading calendar.
+- Canonical bar format: bar-end UTC timestamps.
+- Provider interface with file (CSV/Parquet), Alpaca and Polygon adapters, including retry/backoff and header-only auth.
+- Corporate actions, with split and total-return adjustment derived locally.
+- A validator covering 15 defect kinds, plus a freshness check.
+- A content-addressed, versioned, integrity-checked Parquet store.
+- A pipeline with vendor-revision detection.
+- A point-in-time `MarketDataView`.
+- A synthetic leveraged-ETF model with a tracking-error gate and per-row labelling.
+- A `MarketDataCheck` in the pre-trade gate.
+- `aq data download | validate | list | synthesize`.
+
+**Acceptance:**
+- [x] Provider interface with file, Alpaca and Polygon adapters; network adapters tested against recorded-format fixtures (pagination, auth headers, symbol mapping, error and retry paths).
+- [x] NYSE calendar covers holidays, early closes and special closures (tested dates incl. 2001-09-11, Sandy, 2025-01-09); out-of-coverage queries raise.
+- [x] Validator detects every listed defect class, with one test per class.
+- [x] Store is idempotent and versioned by content hash; corruption is detected; invalid data is never served by default.
+- [x] Raw and adjusted (split, total-return) series are both stored; golden-number tests cover adjustments.
+- [x] Synthetic TQQQ/SQQQ: daily-reset model (golden tests, volatility-drag test), always tagged synthetic (row flag, manifest, Parquet metadata). A tracking-error bound is enforced: synthetic series that exceed it are stored as failed and never used.
+- [ ] **Operator step:** calibrate the synthetic model on *real* TQQQ/SQQQ history (`aq data download` + `aq data synthesize`) and record the measured tracking error. This couldn't be done in the build environment, which has no market-data access.
+- [x] `aq data download`, `validate`, `list` and `synthesize` commands, tested end-to-end.
+- [x] Staleness/validity wired into the pre-trade gate (`market_data_missing | invalid | stale`).
 
 ### M3 — Indicators
 **Acceptance:** all listed indicators; each tested against hand-computed values; *no-look-ahead property test*: value at t computed on data[:t] equals value from full series; warm-up periods return NaN, never partial values.

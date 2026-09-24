@@ -52,7 +52,7 @@ crashes counts as failed; no checks configured counts as failed.
 
 | Reason | Blocks |
 |---|---|
-| market data stale / missing | all orders |
+| market data stale / missing / invalid | all orders |
 | broker unavailable | all orders |
 | positions or equity unconfirmed | all orders |
 | duplicate orders detected | all orders |

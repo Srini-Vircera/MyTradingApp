@@ -16,7 +16,8 @@ Built milestone by milestone — see [docs/ROADMAP.md](docs/ROADMAP.md).
 | Area | Status |
 |---|---|
 | Foundation: configuration, safety primitives, domain model, CLI (M1) | ✅ done |
-| Market data, indicators, strategies, backtesting, research (M2–M6) | planned |
+| Market data: calendar, providers, validation, storage, synthetic history (M2) | ✅ done |
+| Indicators, strategies, backtesting, research (M3–M6) | planned |
 | Ensemble, risk engine, persistence, broker/OMS, scheduler (M7–M10) | planned |
 | API, dashboard, deployment (M11–M13) | planned |
 
@@ -31,6 +32,7 @@ Sections below marked *(Milestone N)* describe commands that do not exist yet.
 | [RESEARCH_METHODOLOGY.md](docs/RESEARCH_METHODOLOGY.md) | strategy research, backtesting, walk-forward, overfitting controls |
 | [RISK_MANAGEMENT.md](docs/RISK_MANAGEMENT.md) | the independent risk engine |
 | [PAPER_TRADING.md](docs/PAPER_TRADING.md) | trading cycle, order management, reconciliation, shadow mode |
+| [DATA.md](docs/DATA.md) | market data: conventions, providers, validation, storage, synthetic history |
 | [DATABASE.md](docs/DATABASE.md) | audit-trail schema |
 | [SAFETY.md](docs/SAFETY.md) | kill switch, refusal conditions, live-trading lock |
 | [ROADMAP.md](docs/ROADMAP.md) | milestones and acceptance criteria |
@@ -100,12 +102,35 @@ aq kill-switch release --actor "Your Name" --reason "why it is safe" --confirm "
 A fresh installation starts **engaged**; release it deliberately once you are
 ready to paper trade. Engaging never deletes history or configuration.
 
-## 5. Research and trading workflows *(Milestones 2–13)*
+## 5. Market data
+
+Full details are in [docs/DATA.md](docs/DATA.md).
+
+**Without an API key**, put CSV files in `var/data/import/`, for example
+`QQQ.csv` with the columns `date,open,high,low,close,volume` and raw prices.
+Add a `QQQ_actions.csv` (`ex_date,type,ratio,amount`) if the prices span
+splits or dividends. Then run the commands below with the default
+`data.primary_provider: file`.
+
+**With Alpaca or Polygon**, put the keys in `.env` and add
+`--provider alpaca` (or set `data.primary_provider`).
+
+```bash
+aq data download                 # every configured instrument, full history, up to the last completed session
+aq data download --provider alpaca --symbols QQQ TQQQ SQQQ SPY --start 2010-01-01
+aq data list                     # what is stored, whether it is valid, SYNTHETIC flags
+aq data validate                 # re-check stored data; reports freshness
+aq data validate --require-fresh # also fail on stale data (trading enforces this)
+aq data synthesize               # synthetic pre-2010 TQQQ/SQQQ + tracking-error check vs real
+```
+
+Data that fails validation is stored for inspection but never used. Downloads
+are idempotent, so re-running them is always safe.
+
+## 6. Research and trading workflows *(Milestones 3–13)*
 
 | Task | Command (planned) | Milestone |
 |---|---|---|
-| Download market data | `aq data download --symbols QQQ TQQQ SQQQ SPY` | 2 |
-| Validate market data | `aq data validate` | 2 |
 | Run a backtest | `aq backtest run --strategy long_term_trend_sma` | 5 |
 | Strategy research (sweeps, walk-forward, Monte Carlo) | `aq research run` | 6 |
 | Start the API | `aq api` | 11 |
@@ -113,7 +138,7 @@ ready to paper trade. Engaging never deletes history or configuration.
 | Paper trading | `aq --env paper trade run` | 10 |
 | Shadow mode | set `trading.mode: shadow`, then `aq trade run` | 10 |
 
-## 6. Logs
+## 7. Logs
 
 Structured logs go to stderr — JSON in paper/production, readable console
 output in development (`logging.format`). Every record carries a UTC timestamp
@@ -121,7 +146,7 @@ and, once trading runs exist, `run_id` and `config_version`. Secret-looking
 fields are redacted. The kill-switch audit trail is
 `var/state/kill_switch_audit.jsonl`.
 
-## 7. Tests and quality checks
+## 8. Tests and quality checks
 
 ```bash
 make test        # pytest
@@ -135,7 +160,7 @@ make validate    # validate every shipped environment
 ## Project layout
 
 ```
-src/adaptive_quant/   core, config, observability, governance, notifications, trading/…
+src/adaptive_quant/   core, config, observability, governance, notifications, quant/data, trading/…
 config/               YAML configuration
 tests/                unit / integration / regression
 docs/                 design and operating documentation

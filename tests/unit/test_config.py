@@ -322,3 +322,41 @@ def test_secretstr_never_leaks_in_repr() -> None:
     s = Secrets(ALPACA_API_SECRET_KEY="supersecret")
     assert "supersecret" not in repr(s)
     assert isinstance(s.alpaca_api_secret_key, SecretStr)
+
+
+class TestDataConfig:
+    def test_synthetic_products_must_be_leveraged(
+        self, config_dir: Path, patch_yaml: PatchYaml
+    ) -> None:
+        patch_yaml(
+            "base.yaml",
+            lambda d: d["data"]["synthetic"]["products"].update(
+                {"QQQ": {"expense_ratio": 0.002, "inception": "2010-01-04"}}
+            ),
+        )
+        with pytest.raises(ConfigurationError, match="not a leveraged instrument"):
+            load_config("development", config_dir=config_dir)
+
+    def test_underlying_must_be_declared(self, config_dir: Path, patch_yaml: PatchYaml) -> None:
+        patch_yaml(
+            "base.yaml", lambda d: d["data"]["synthetic"].update({"underlying_symbol": "IWM"})
+        )
+        with pytest.raises(ConfigurationError, match="underlying_symbol"):
+            load_config("development", config_dir=config_dir)
+
+    def test_product_must_track_underlying(self, config_dir: Path, patch_yaml: PatchYaml) -> None:
+        patch_yaml(
+            "base.yaml", lambda d: d["data"]["synthetic"].update({"underlying_symbol": "SPY"})
+        )
+        with pytest.raises(ConfigurationError, match="tracks QQQ"):
+            load_config("development", config_dir=config_dir)
+
+    def test_inception_after_history_start(self, config_dir: Path, patch_yaml: PatchYaml) -> None:
+        patch_yaml("base.yaml", lambda d: d["data"].update({"history_start": "2011-01-03"}))
+        with pytest.raises(ConfigurationError, match="inception"):
+            load_config("development", config_dir=config_dir)
+
+    def test_unknown_provider_rejected(self, config_dir: Path, patch_yaml: PatchYaml) -> None:
+        patch_yaml("base.yaml", lambda d: d["data"].update({"primary_provider": "yahoo"}))
+        with pytest.raises(ConfigurationError, match="primary_provider"):
+            load_config("development", config_dir=config_dir)

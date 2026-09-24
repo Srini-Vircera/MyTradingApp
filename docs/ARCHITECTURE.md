@@ -93,7 +93,7 @@ MyTradingApp/                      (the repo; the platform is called "adaptive-q
 │   ├── governance/                strategy lifecycle & approvals                      [M1]
 │   ├── notifications/             event taxonomy, router, channels                    [M1 contract, M10 email]
 │   ├── quant/
-│   │   ├── data/                  providers, calendar, validation, store, synthetic LETF  [M2]
+│   │   ├── data/                  calendar, bars, providers, validation, store, synthetic  [M2]
 │   │   ├── indicators/            point-in-time indicator library                    [M3]
 │   │   ├── strategies/            Strategy interface + candidate catalogue           [M4]
 │   │   ├── backtest/              event loop, execution & cost models                [M5]
@@ -135,34 +135,42 @@ MyTradingApp/                      (the repo; the platform is called "adaptive-q
 
 ## 5. Core Python interfaces
 
-Implemented now (M1): `Clock`, `StrategySignal`, `TargetPortfolio`,
+Implemented in M1: `Clock`, `StrategySignal`, `TargetPortfolio`,
 `Instrument`, `AccountSnapshot`, `Position`, `OrderRequest`, `OrderSnapshot`,
 `MarketClock`, `BrokerAdapter`, `KillSwitchStore`, `PreflightCheck`,
 `Notifier`, lifecycle `transition()`, order `assert_transition()`.
 
+Implemented in M2 (`quant/data`, see [DATA.md](DATA.md)):
+
+```python
+class MarketDataProvider(ABC):                       # providers/base.py
+    capabilities: ProviderCapabilities               # frequencies, adjustments, corporate actions
+    def fetch_bars(self, request: BarRequest) -> pd.DataFrame: ...          # canonical, unvalidated
+    def fetch_corporate_actions(self, symbol, start, end) -> list[CorporateAction]: ...
+    # raises CorporateActionsUnavailable when unknown; [] means "confirmed none"
+
+class TradingCalendar:                               # calendar.py (NYSE via exchange_calendars)
+    def sessions_in_range(self, start: date, end: date) -> list[Session]: ...
+    def session(self, d: date) -> Session | None: ...
+    def last_completed_session(self, as_of: datetime) -> Session | None: ...
+    def is_open(self, at: datetime) -> bool: ...
+
+class BarValidator:                                  # validation.py
+    def validate(self, bars, *, frequency, subject, corporate_action_dates=(),
+                 as_of=None, expected_start=None, expected_end=None) -> ValidationReport: ...
+
+class ParquetBarStore:                               # store.py (content-addressed, versioned)
+    def write(self, key: SeriesKey, bars, *, provider, validation, is_synthetic=False) -> SnapshotInfo: ...
+    def read(self, key: SeriesKey, *, require_valid=True) -> pd.DataFrame: ...
+
+class MarketDataView:                                # view.py - the only way strategies see prices
+    def bars(self, symbol: str, lookback: int | None = None) -> pd.DataFrame: ...  # timestamp <= as_of
+    def data_timestamp(self, symbol: str) -> datetime: ...
+```
+
 Specified here, implemented in later milestones:
 
 ```python
-# quant/data (M2) ---------------------------------------------------------------
-class MarketDataProvider(ABC):
-    name: str
-    def daily_bars(self, symbol: str, start: date, end: date,
-                   adjustment: Adjustment) -> pd.DataFrame: ...      # canonical OHLCV schema
-    def intraday_bars(self, symbol: str, start: datetime, end: datetime,
-                      interval: str) -> pd.DataFrame: ...
-    def corporate_actions(self, symbol: str, start: date, end: date) -> list[CorporateAction]: ...
-
-class TradingCalendar(Protocol):
-    def sessions(self, start: date, end: date) -> list[Session]: ...   # open/close in UTC, early closes
-    def is_session(self, d: date) -> bool: ...
-
-class BarValidator:
-    def validate(self, bars: pd.DataFrame, calendar: TradingCalendar) -> ValidationReport: ...
-
-class MarketDataView:
-    """Point-in-time view: .bars(symbol) returns only rows with timestamp <= as_of."""
-    as_of: datetime
-
 # quant/indicators (M3) ---------------------------------------------------------
 class Indicator(Protocol):
     name: str

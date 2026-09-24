@@ -50,6 +50,22 @@ class MissingDataError(DataQualityError):
     """Required market data is absent."""
 
 
+class DataProviderError(AQError):
+    """A market-data provider could not be reached or returned unusable data."""
+
+
+class ProviderAuthError(DataProviderError):
+    """The provider rejected our credentials."""
+
+
+class CorporateActionsUnavailable(DataProviderError):
+    """The provider cannot supply corporate actions for this request."""
+
+
+class CalendarError(AQError):
+    """A trading-calendar query fell outside the calendar's coverage."""
+
+
 class BrokerError(AQError):
     """The broker could not be reached or returned an unexpected response."""
 

@@ -12,11 +12,11 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from adaptive_quant import __version__
+from adaptive_quant import __version__, cli_data
 from adaptive_quant.config.loader import LoadedConfig, load_config
 from adaptive_quant.config.schema import redact
 from adaptive_quant.config.secrets import Secrets, load_secrets
-from adaptive_quant.core.clock import SystemClock, to_market_time
+from adaptive_quant.core.clock import Clock, SystemClock, to_market_time
 from adaptive_quant.core.errors import AQError
 from adaptive_quant.observability.logging import configure_logging
 from adaptive_quant.trading.safety.kill_switch import (
@@ -68,19 +68,21 @@ def build_parser() -> argparse.ArgumentParser:
     rel.add_argument("--actor", required=True, help="your name")
     rel.add_argument("--reason", required=True)
     rel.add_argument("--confirm", required=True, help=f"must be exactly: {RELEASE_CONFIRMATION!r}")
+
+    cli_data.register(sub)
     return parser
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(argv: Sequence[str] | None = None, *, clock: Clock | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        return _dispatch(args)
+        return _dispatch(args, clock or SystemClock())
     except AQError as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return EXIT_REFUSED
 
 
-def _dispatch(args: argparse.Namespace) -> int:
+def _dispatch(args: argparse.Namespace, clock: Clock) -> int:
     if args.command == "version":
         print(__version__)
         return EXIT_OK
@@ -96,7 +98,9 @@ def _dispatch(args: argparse.Namespace) -> int:
             print(f"{name:<28} {'set' if present else 'NOT SET'}")
         return EXIT_OK
     if args.command == "kill-switch":
-        return _kill_switch(args, loaded)
+        return _kill_switch(args, loaded, clock)
+    if args.command == "data":
+        return cli_data.run(args, loaded, secrets, clock)
     raise AssertionError(f"unhandled command {args.command}")  # pragma: no cover
 
 
@@ -124,13 +128,13 @@ def _config(args: argparse.Namespace, loaded: LoadedConfig, secrets: Secrets) ->
     return EXIT_OK
 
 
-def _kill_switch(args: argparse.Namespace, loaded: LoadedConfig) -> int:
+def _kill_switch(args: argparse.Namespace, loaded: LoadedConfig, clock: Clock) -> int:
     cfg = loaded.settings.trading.kill_switch
     switch = KillSwitch(
         FileKillSwitchStore(
             loaded.resolve_path(cfg.state_file), loaded.resolve_path(cfg.audit_file)
         ),
-        SystemClock(),
+        clock,
     )
     if args.action == "engage":
         switch.engage(actor=args.actor, reason=args.reason)
