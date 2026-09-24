@@ -76,3 +76,11 @@ def test_backtester_cannot_reach_brokers_network_or_credentials(path: Path) -> N
     text = path.read_text()
     for token in ("BrokerAdapter", "submit_order", "getenv", "environ", "SecretStr"):
         assert token not in text, f"{path.name} references {token}"
+
+
+def test_only_the_order_manager_transmits_orders() -> None:
+    """``submit_order(`` may be called only by the order manager (and defined by adapters)."""
+    callers = {
+        str(p.relative_to(SRC)) for p in SRC.rglob("*.py") if ".submit_order(" in p.read_text()
+    }
+    assert callers == {"trading/orders/manager.py"}

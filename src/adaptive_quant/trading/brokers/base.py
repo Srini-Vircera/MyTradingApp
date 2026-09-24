@@ -12,6 +12,7 @@ Error contract for implementations
   investigate with :meth:`get_order_by_client_id` - never resubmit blindly.
 * A broker that rejects a duplicate ``client_order_id`` must surface that as
   :class:`DuplicateClientOrderId` so the caller can look up the original.
+* A definitive refusal (validation, buying power) is :class:`OrderRejectedByBroker`.
 """
 
 from __future__ import annotations
@@ -33,6 +34,14 @@ from adaptive_quant.core.models import (
 
 class DuplicateClientOrderId(BrokerError):
     """The broker already has an order with this client_order_id."""
+
+
+class OrderRejectedByBroker(BrokerError):
+    """The broker definitively refused the order (e.g. insufficient buying power).
+
+    Unlike a transport failure the outcome is known: the order is REJECTED and
+    is never retried automatically.
+    """
 
 
 @dataclass(frozen=True)

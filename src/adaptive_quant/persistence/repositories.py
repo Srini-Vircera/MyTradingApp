@@ -14,7 +14,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -31,8 +31,10 @@ from adaptive_quant.persistence.records import (
     DataSnapshotRecord,
     DecisionRecord,
     ExecutionRecord,
+    IntentView,
     LifecycleEventRecord,
     OrderUpdate,
+    ReconciliationView,
     ResearchRunRecord,
     StrategyVersionRecord,
 )
@@ -403,6 +405,17 @@ class CycleRepository(_Repo):
                 )
             )
 
+    def latest_reconciliation(self) -> ReconciliationView | None:
+        with self.db.session() as s:
+            r = s.scalars(
+                select(m.ReconciliationReportRow)
+                .order_by(m.ReconciliationReportRow.at.desc(), m.ReconciliationReportRow.id.desc())
+                .limit(1)
+            ).first()
+            if r is None:
+                return None
+            return ReconciliationView(r.id, r.cycle_id, r.passed, dict(r.differences_json), r.at)
+
     def record_shadow_order(self, cycle_id: str, req: OrderRequest) -> None:
         with self.db.session() as s:
             s.add(
@@ -520,6 +533,68 @@ class OrderRepository(_Repo):
                 .returning(m.Execution.id)
             )
             return res.first() is not None
+
+    def intents(
+        self, *, states: Sequence[str] | None = None, cycle_id: str | None = None
+    ) -> list[IntentView]:
+        with self.db.session() as s:
+            q = select(m.OrderIntent).order_by(
+                m.OrderIntent.created_at, m.OrderIntent.client_order_id
+            )
+            if states is not None:
+                q = q.where(m.OrderIntent.state.in_(list(states)))
+            if cycle_id is not None:
+                q = q.where(m.OrderIntent.cycle_id == cycle_id)
+            return [
+                IntentView(
+                    client_order_id=o.client_order_id,
+                    cycle_id=o.cycle_id,
+                    decision_id=o.decision_id,
+                    symbol=o.symbol,
+                    side=o.side,
+                    quantity=o.quantity,
+                    state=o.state,
+                    broker_order_id=o.broker_order_id,
+                    risk_increasing=o.risk_increasing,
+                )
+                for o in s.scalars(q)
+            ]
+
+    def next_sequence(self, cycle_id: str, symbol: str, side: str) -> int:
+        """Sequence for a new intent of (cycle, symbol, side): allocated from persisted state."""
+        with self.db.session() as s:
+            n = s.scalar(
+                select(func.count())
+                .select_from(m.OrderIntent)
+                .where(
+                    m.OrderIntent.cycle_id == cycle_id,
+                    m.OrderIntent.symbol == symbol,
+                    m.OrderIntent.side == side,
+                )
+            )
+            return int(n or 0)
+
+    def execution_totals(self, client_order_id: str) -> tuple[Decimal, Decimal]:
+        """(filled quantity, filled notional) recorded so far for one order."""
+        with self.db.session() as s:
+            row = s.execute(
+                select(
+                    func.coalesce(func.sum(m.Execution.qty), 0),
+                    func.coalesce(func.sum(m.Execution.qty * m.Execution.price), 0),
+                ).where(m.Execution.client_order_id == client_order_id)
+            ).one()
+            return Decimal(row[0]), Decimal(row[1])
+
+    def executions_for_cycle(self, cycle_id: str) -> list[tuple[str, str, Decimal]]:
+        """(symbol, side, qty) of every recorded execution of the cycle's orders."""
+        with self.db.session() as s:
+            rows = s.execute(
+                select(m.OrderIntent.symbol, m.OrderIntent.side, m.Execution.qty)
+                .join(m.Execution, m.Execution.client_order_id == m.OrderIntent.client_order_id)
+                .where(m.OrderIntent.cycle_id == cycle_id)
+                .order_by(m.Execution.at, m.Execution.id)
+            ).all()
+            return [(a, b, c) for a, b, c in rows]
 
     def get_state(self, client_order_id: str) -> str | None:
         with self.db.session() as s:

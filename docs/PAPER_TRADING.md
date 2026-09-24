@@ -1,5 +1,9 @@
 # Paper-trading and shadow-mode architecture
 
+> **Milestone 9 implemented** the broker adapters, order planner, order manager and
+> reconciliation (`src/adaptive_quant/trading/`). See [Implementation notes](#implementation-notes-m9).
+> The scheduled trading cycle that wires them together is Milestone 10.
+
 ## Trading cycle (one per session, M10)
 
 Times are *minutes before the session close* (`config/base.yaml → schedule`), so
@@ -74,3 +78,33 @@ For each paper session: backtest the same config over the same day(s) and
 compare signals (should match exactly), targets (exactly), fills vs. modelled
 prices (slippage distribution), daily P&L difference, and errors. Persistent
 divergence blocks promotion beyond PAPER.
+
+## Implementation notes (M9)
+
+| Component | Module | Behaviour |
+|---|---|---|
+| Alpaca paper adapter | `brokers/alpaca.py` | Refuses any endpoint other than `https://paper-api.alpaca.markets`. Credentials are sent in headers only. Reads are retried (transport, 429, 5xx). **Order submission is never retried**: a timeout or 5xx raises `BrokerError` (the order becomes UNKNOWN). HTTP 422 for a duplicate client ID raises `DuplicateClientOrderId`; 403 or other 422s raise `OrderRejectedByBroker`. On-close orders are sent with `time_in_force: cls` |
+| Simulated broker | `brokers/simulated.py` | A cash account (no margin, no shorting) with idempotent client IDs, partial fills, slippage and buying-power checks. Fault injection: `timeout_after_accept`, `timeout_before_accept`, `reject`, unavailable, manual (unexpected) positions, price changes |
+| Broker factory | `brokers/factory.py` | Builds the Alpaca paper adapter from config and secrets; refuses live mode |
+| Order planner | `orders/planner.py` | Idempotent deltas (see above). Refuses the whole plan on: an UNKNOWN order, a foreign or unseen open order, duplicate IDs, a blocked account, a missing price, or an unknown instrument. Rounds toward zero; skips moves inside the rebalance band; applies `max_order_notional`; limits buys to `(1 − buying_power_buffer) ×` buying power; skips risk-increasing orders when the price moved more than `max_price_deviation` since the risk decision; sequences sells first. Order IDs come from sequences allocated from persisted state |
+| Order manager | `orders/manager.py` | Persist CREATED → VALIDATED → **SUBMITTED before transmission** → submit; adopt the broker state and record fills (with slippage vs expected). Timeout → UNKNOWN + one lookup, never a resend. `sync()` adopts broker state. `recover()` resolves every non-terminal intent after a restart. Shadow mode records `shadow_orders` only. Live mode is refused |
+| Reconciliation | `reconciliation/reconciler.py` | Checks broker positions against start positions plus fills, open orders both ways, and cash. A failure is persisted and blocks **risk-increasing** trading (`ReconciliationCheck`) until a named person acknowledges it with a written reason (≥ 20 characters) |
+| Pre-trade checks | `safety/broker_checks.py` | `BrokerStateCheck`: account, positions and open orders readable; paper account; not blocked; positive equity. `ReconciliationCheck` |
+
+**Risk-increasing flag.** A buy is always risk-increasing. A sell is risk-reducing only if it moves net underlying exposure towards zero; for example, selling SQQQ while net long is risk-increasing.
+
+**Static test.** Only `orders/manager.py` calls `submit_order`.
+
+**Scenario tests** (`tests/trading/`, against real PostgreSQL):
+- API timeout, both after and before the broker accepted the order;
+- duplicate submission, both a replayed plan and a broker-side duplicate;
+- partial fill;
+- rejection;
+- insufficient buying power;
+- restart mid-trade;
+- an existing unknown order;
+- an unexpected position (reconciliation halt and acknowledgement);
+- price spike and large gap;
+- the 1,500 / 1,000 / 500 example (no order);
+- shadow mode never submits;
+- database outage: nothing is transmitted.

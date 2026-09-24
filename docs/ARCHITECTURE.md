@@ -104,9 +104,9 @@ MyTradingApp/                      (the repo; the platform is called "adaptive-q
 │   │   └── risk/                  estimators, 8-step risk engine, decisions          [M7]
 │   ├── trading/
 │   │   ├── safety/                kill switch, pre-trade refusal gate                [M1]
-│   │   ├── orders/                state machine [M1], order planner & OMS [M9]
-│   │   ├── brokers/               BrokerAdapter contract [M1], Alpaca paper [M9]
-│   │   ├── reconciliation/                                                            [M9]
+│   │   ├── orders/                state machine [M1], order planner & manager [M9]
+│   │   ├── brokers/               BrokerAdapter contract [M1], Alpaca paper + simulated [M9]
+│   │   ├── reconciliation/        broker vs expected; human acknowledgement          [M9]
 │   │   └── scheduler/             market-aware trading cycle                         [M10]
 │   ├── persistence/               SQLAlchemy models, repositories, Alembic           [M8]
 │   └── cli.py                     `aq` operator CLI

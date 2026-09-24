@@ -23,7 +23,8 @@ Built milestone by milestone — see [docs/ROADMAP.md](docs/ROADMAP.md).
 | Research robustness: sweeps, walk-forward, Monte Carlo, DSR/PBO/Reality Check/FDR, scorecard, trial registry (M6) | ✅ done |
 | Ensemble, allocation policy, independent risk engine (M7) | ✅ done |
 | PostgreSQL audit trail: schema, migrations, repositories, explain query (M8) | ✅ done |
-| Broker/OMS, scheduler (M9–M10) | planned |
+| Broker (Alpaca paper, simulated), order planner/manager, reconciliation (M9) | ✅ done |
+| Scheduler, trading cycle, notifications (M10) | planned |
 | API, dashboard, deployment (M11–M13) | planned |
 
 Sections below marked *(Milestone N)* describe commands that do not exist yet.

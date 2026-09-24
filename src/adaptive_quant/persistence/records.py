@@ -160,3 +160,27 @@ class ExecutionRecord:
     fee: Decimal
     at: datetime
     expected_price: Decimal | None = None
+
+
+@dataclass(frozen=True)
+class IntentView:
+    """A stored order intent (read model)."""
+
+    client_order_id: str
+    cycle_id: str
+    decision_id: str
+    symbol: str
+    side: str
+    quantity: Decimal
+    state: str
+    broker_order_id: str | None
+    risk_increasing: bool
+
+
+@dataclass(frozen=True)
+class ReconciliationView:
+    id: int
+    cycle_id: str
+    passed: bool
+    differences: Json
+    at: datetime

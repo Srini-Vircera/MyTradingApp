@@ -19,8 +19,8 @@ risk are grouped (M7) because they share the target-portfolio contract.
 | 6 | Research robustness: sensitivity, walk-forward, Monte Carlo, DSR/PBO, ranking, governance registry | **done** |
 | 7 | Ensemble + portfolio allocation + risk engine | **done** |
 | 8 | PostgreSQL persistence + audit trail | **done** |
-| 9 | Broker abstraction, Alpaca paper, order planner/manager, reconciliation | next |
-| 10 | Scheduler, trading cycle, shadow mode, email notifications | |
+| 9 | Broker abstraction, Alpaca paper, order planner/manager, reconciliation | **done** |
+| 10 | Scheduler, trading cycle, shadow mode, email notifications | next |
 | 11 | FastAPI | |
 | 12 | Next.js dashboard | |
 | 13 | Docker deployment, paper-vs-backtest report, AWS documentation | |
@@ -176,8 +176,21 @@ docker-compose PostgreSQL; CI workflow; design docs.
 - [x] The "explain decision" query returns the full chain for a cycle: config, pre-trade checks, target, risk adjustments, proposal, ensemble, signals, orders, events and executions.
 - [x] DB down ⇒ order intents cannot be created (tested with an unreachable server and with a database taken down mid-session); the pre-trade gate refuses.
 
-### M9 — Broker, OMS, reconciliation
-**Acceptance:** Alpaca paper adapter; simulated broker for tests with fault injection; integration tests for: API timeout, duplicate submission, partial fill, rejection, restart mid-trade, unexpected position, existing unknown order, zero/insufficient buying power, price spike, large gap; the 1,500/1,000/500 example yields no order; reconciliation halts on discrepancy.
+### M9 — Broker, OMS, reconciliation ✅
+**Deliverables** (see [PAPER_TRADING.md](PAPER_TRADING.md#implementation-notes-m9)):
+- Alpaca paper adapter (paper endpoint only) and a fault-injecting simulated broker.
+- Order planner and order manager.
+- Reconciliation with human acknowledgement.
+- `BrokerStateCheck` / `ReconciliationCheck`.
+- A static rule that only the order manager transmits.
+
+**Acceptance:**
+- [x] Alpaca paper adapter, tested against recorded-format responses: every status mapped, submission never retried, duplicate and rejection mapping, retries on reads, no secret leakage.
+- [x] Simulated broker with fault injection.
+- [x] Integration tests (real PostgreSQL): API timeout, duplicate submission, partial fill, rejection, restart mid-trade, unexpected position, existing unknown order, zero/insufficient buying power, price spike, large gap.
+- [x] The 1,500/1,000/500 example yields no order.
+- [x] Reconciliation halts risk-increasing trading on a discrepancy until a human acknowledges it.
+- [ ] **Operator step:** run against a real Alpaca *paper* account (needs keys; not possible in the build environment).
 
 ### M10 — Scheduler, shadow mode, notifications
 **Acceptance:** cycle runner with minutes-before-close schedule; tests for weekends, holidays, early closes, halts; restart resumes the same cycle; shadow mode never calls `submit_order` (asserted with a spy broker); email notifier with templated messages for every event type; end-of-day summary.

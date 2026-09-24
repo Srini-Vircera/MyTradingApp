@@ -34,6 +34,13 @@ trading:
   rebalance_threshold_weight: 0.02
   # A confirmed broker rejection is never retried blindly. 0 = never.
   max_order_retries_on_confirmed_reject: 0
+  # Order planning (M9)
+  sizing_cash_buffer: 0.005          # size targets on (1 - buffer) of equity
+  max_price_deviation: 0.05          # price moved > 5% since the decision: no risk-increasing order
+  buying_power_buffer: 0.01          # buys use at most (1 - buffer) of broker buying power
+  # Reconciliation (M9): broker vs expected, beyond these => halt risk-increasing trading
+  reconciliation_qty_tolerance: 0.000001
+  reconciliation_cash_tolerance: 1.0 # USD
 
 universe:
   signal_symbols: [QQQ]

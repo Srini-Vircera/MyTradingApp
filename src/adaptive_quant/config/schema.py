@@ -88,6 +88,13 @@ class TradingConfig(Section):
     allow_fractional_shares: bool = True
     rebalance_threshold_weight: Fraction = 0.02
     max_order_retries_on_confirmed_reject: int = Field(default=0, ge=0, le=3)
+    #: order planning (M9)
+    sizing_cash_buffer: Annotated[float, Field(ge=0.0, le=0.1)] = 0.005
+    max_price_deviation: Annotated[float, Field(gt=0.0, le=0.5)] = 0.05
+    buying_power_buffer: Annotated[float, Field(ge=0.0, le=0.2)] = 0.01
+    #: reconciliation tolerances (M9)
+    reconciliation_qty_tolerance: Annotated[float, Field(ge=0.0)] = 0.000001
+    reconciliation_cash_tolerance: Annotated[float, Field(ge=0.0)] = 1.0
 
 
 # ============================================================ universe
