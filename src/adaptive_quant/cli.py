@@ -14,6 +14,7 @@ from pathlib import Path
 
 from adaptive_quant import (
     __version__,
+    cli_api,
     cli_backtest,
     cli_data,
     cli_db,
@@ -38,6 +39,7 @@ SECRET_GROUPS: dict[str, tuple[str, ...]] = {
     "broker": ("alpaca_api_key_id", "alpaca_api_secret_key"),
     "database": ("database_url",),
     "polygon": ("polygon_api_key",),
+    "api": ("api_token",),
 }
 
 EXIT_OK = 0
@@ -84,6 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
     cli_research.register(sub)
     cli_db.register(sub)
     cli_trade.register(sub)
+    cli_api.register(sub)
     return parser
 
 
@@ -125,6 +128,8 @@ def _dispatch(args: argparse.Namespace, clock: Clock) -> int:
         return cli_db.run(args, loaded, secrets, clock)
     if args.command == "trade":
         return cli_trade.run(args, loaded, secrets, clock)
+    if args.command == "api":
+        return cli_api.run(args, loaded, secrets, clock)
     raise AssertionError(f"unhandled command {args.command}")  # pragma: no cover
 
 

@@ -250,6 +250,23 @@ class DatabaseConfig(Section):
     echo_sql: bool = False
 
 
+# ============================================================ API (M11)
+class ApiConfig(Section):
+    """Operator API. The bearer token comes only from ``AQ_API_TOKEN``."""
+
+    host: str = "127.0.0.1"  # localhost by default; expose deliberately (behind TLS) in M13
+    port: int = Field(default=8000, gt=0, lt=65536)
+    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+    max_page_size: int = Field(default=500, ge=10, le=5000)
+    min_bearer_chars: int = Field(default=32, ge=24, le=256)
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if "*" in self.cors_origins:
+            raise ValueError("api.cors_origins must list explicit origins ('*' is not allowed)")
+        return self
+
+
 # ============================================================ notifications
 class EmailConfig(Section):
     enabled: bool = False
@@ -640,6 +657,7 @@ class Settings(Section):
     broker: BrokerConfig = BrokerConfig()
     database: DatabaseConfig = DatabaseConfig()
     notifications: NotificationsConfig = NotificationsConfig()
+    api: ApiConfig = ApiConfig()
     risk: RiskConfig
     strategies: StrategiesConfig = StrategiesConfig()
     backtest: BacktestConfig = BacktestConfig()

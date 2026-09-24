@@ -23,6 +23,8 @@ dependencies = [
     "sqlalchemy>=2.0",
     "alembic>=1.13",
     "psycopg[binary]>=3.2",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
 ]
 
 [project.optional-dependencies]
@@ -50,7 +52,11 @@ markers = [
     "regression: golden-number tests that guard financial calculations",
     "postgres: tests that need a real PostgreSQL server (temporary cluster or AQ_TEST_DATABASE_URL)",
 ]
-filterwarnings = ["error"]
+filterwarnings = [
+    "error",
+    # starlette's TestClient (tests only) still uses httpx; avoid adding the httpx2 dependency
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]
 
 # ---------------------------------------------------------------- ruff
 [tool.ruff]

@@ -33,6 +33,7 @@ class Secrets(BaseSettings):
     smtp_username: SecretStr | None = Field(default=None, alias="SMTP_USERNAME")
     smtp_password: SecretStr | None = Field(default=None, alias="SMTP_PASSWORD")
     live_trading_confirm: SecretStr | None = Field(default=None, alias="AQ_LIVE_TRADING_CONFIRM")
+    api_token: SecretStr | None = Field(default=None, alias="AQ_API_TOKEN")
 
     def require(self, *fields: str) -> None:
         """Raise a readable error listing every missing variable at once."""

@@ -119,6 +119,13 @@ database:
   statement_timeout_ms: 15000
   echo_sql: false
 
+api:                               # operator API (M11); token only from AQ_API_TOKEN
+  host: 127.0.0.1                  # localhost only by default
+  port: 8000
+  cors_origins: ["http://localhost:3000"]
+  max_page_size: 500
+  min_bearer_chars: 32             # minimum length of the AQ_API_TOKEN value
+
 notifications:
   min_severity: warning
   email:

@@ -25,7 +25,8 @@ Built milestone by milestone — see [docs/ROADMAP.md](docs/ROADMAP.md).
 | PostgreSQL audit trail: schema, migrations, repositories, explain query (M8) | ✅ done |
 | Broker (Alpaca paper, simulated), order planner/manager, reconciliation (M9) | ✅ done |
 | Scheduler, trading cycle, shadow mode, email notifications (M10) | ✅ done |
-| API, dashboard, deployment (M11–M13) | planned |
+| Operator API: read endpoints, kill switch, token auth, OpenAPI (M11) | ✅ done |
+| Dashboard, deployment (M12–M13) | planned |
 
 Sections below marked *(Milestone N)* describe commands that do not exist yet.
 
@@ -44,6 +45,7 @@ Sections below marked *(Milestone N)* describe commands that do not exist yet.
 | [BACKTESTING.md](docs/BACKTESTING.md) | execution timing, costs, accounting, metrics, synthetic separation |
 | [RESEARCH.md](docs/RESEARCH.md) | parameter robustness, walk-forward, Monte Carlo, multiple-testing controls, scorecard, governance |
 | [DATABASE.md](docs/DATABASE.md) | audit-trail schema |
+| [API.md](docs/API.md) | operator API: endpoints, authentication, safety guarantees |
 | [SAFETY.md](docs/SAFETY.md) | kill switch, refusal conditions, live-trading lock |
 | [ROADMAP.md](docs/ROADMAP.md) | milestones and acceptance criteria |
 
@@ -198,11 +200,18 @@ aq --env paper trade run           # long-running market-aware scheduler
 
 Set `trading.mode: shadow` to run the full pipeline without sending any order. See [docs/PAPER_TRADING.md](docs/PAPER_TRADING.md).
 
+## 9a. Operator API
+
+```bash
+aq --env paper api serve     # needs AQ_API_TOKEN (>= 32 chars); localhost:8000/api/v1
+```
+
+Read-only views plus the kill switch; it cannot change the trading mode. See [docs/API.md](docs/API.md).
+
 ## 9b. Later milestones
 
 | Task | Command (planned) | Milestone |
 |---|---|---|
-| Start the API | `aq api` | 11 |
 | Start the dashboard | `cd apps/dashboard && npm run dev` | 12 |
 
 ## 10. Logs

@@ -111,7 +111,7 @@ MyTradingApp/                      (the repo; the platform is called "adaptive-q
 │   ├── persistence/               SQLAlchemy models, repositories, Alembic           [M8]
 │   └── cli.py                     `aq` operator CLI
 ├── apps/
-│   ├── api/                       FastAPI app (thin layer over services)            [M11]
+│   ├── api/                       FastAPI app: src/adaptive_quant/api (schema in apps/api) [M11]
 │   └── dashboard/                 Next.js + TypeScript                               [M12]
 ├── config/                        base / risk / strategies / development / paper / production .yaml
 ├── tests/{unit,integration,regression}/

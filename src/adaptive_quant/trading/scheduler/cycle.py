@@ -468,6 +468,15 @@ class TradingCycle:
         )
         rc.record(self.cycles, self.cycle_id, result, now)
         self.cycles.record_positions(
+            self.cycle_id,
+            "broker",
+            [(p.symbol, p.quantity, p.market_value) for p in positions],
+            now,
+        )
+        self.cycles.record_account(
+            self.cycle_id, account.equity, account.cash, account.buying_power, account.is_paper, now
+        )
+        self.cycles.record_positions(
             self.cycle_id, "expected", [(s, q, Decimal(0)) for s, q in expected.items()], now
         )
         if not result.passed:

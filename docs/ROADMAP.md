@@ -21,8 +21,8 @@ risk are grouped (M7) because they share the target-portfolio contract.
 | 8 | PostgreSQL persistence + audit trail | **done** |
 | 9 | Broker abstraction, Alpaca paper, order planner/manager, reconciliation | **done** |
 | 10 | Scheduler, trading cycle, shadow mode, email notifications | **done** |
-| 11 | FastAPI | next |
-| 12 | Next.js dashboard | |
+| 11 | FastAPI | **done** |
+| 12 | Next.js dashboard | next |
 | 13 | Docker deployment, paper-vs-backtest report, AWS documentation | |
 
 ---
@@ -210,8 +210,19 @@ docker-compose PostgreSQL; CI workflow; design docs.
 - [x] End-of-day summary (email plus `daily_performance`).
 - [ ] **Operator step:** promote strategies to `paper` (a person, with written evidence), configure the Alpaca paper keys, `DATABASE_URL` and SMTP, then run `aq --env paper trade run`.
 
-### M11 — API
-**Acceptance:** FastAPI read endpoints for every dashboard page; kill-switch endpoints with confirmation; auth (single-operator token) ; OpenAPI schema; no endpoint can change trading mode.
+### M11 — API ✅
+**Deliverables** (see [API.md](API.md)):
+- `src/adaptive_quant/api/` and the read-only query layer `persistence/reads.py`.
+- `aq api serve | openapi`.
+- The committed schema `apps/api/openapi.json`.
+- Config `api:` (localhost, explicit CORS, page size) and the `AQ_API_TOKEN` secret.
+
+**Acceptance:**
+- [x] FastAPI read endpoints for every dashboard page (Overview, Portfolio, Strategies, Signals, Risk, Performance, Backtests, Orders, Executions, System Health, Configuration), plus cycles and explain, reconciliation and shadow orders. Tested against a real completed cycle on PostgreSQL.
+- [x] Kill-switch endpoints with typed confirmation phrases and a named operator, audited in the file log and the database.
+- [x] Single-operator bearer-token auth (constant-time; a weak or missing token refuses start-up); every route except liveness requires it.
+- [x] OpenAPI schema committed, with a drift test.
+- [x] No endpoint can change the trading mode: route-level whitelist test, 404/405 on every mutation attempt, static import boundaries.
 
 ### M12 — Dashboard
 **Acceptance:** Next.js/TypeScript pages: Overview, Portfolio, Strategies, Signals, Risk, Performance, Backtests, Orders, Executions, System Health, Configuration; prominent PAPER/LIVE banner; STOP AUTOMATED TRADING button with confirmation; charts per the spec.
