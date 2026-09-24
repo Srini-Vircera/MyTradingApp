@@ -1,0 +1,12 @@
+# paper.yaml - automated trading against an Alpaca PAPER account (no real money).
+app:
+  environment: paper
+logging:
+  level: INFO
+  format: json
+trading:
+  mode: paper
+  live_trading:
+    enabled: false        # must stay false in this environment
+notifications:
+  min_severity: warning

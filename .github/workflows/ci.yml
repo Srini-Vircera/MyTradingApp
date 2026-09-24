@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - name: Install
+        run: |
+          uv venv --python 3.12 .venv
+          uv pip install --python .venv -e ".[dev]"
+      - name: Lint
+        run: |
+          .venv/bin/ruff check src tests
+          .venv/bin/ruff format --check src tests
+      - name: Type check
+        run: .venv/bin/mypy
+      - name: Tests
+        run: .venv/bin/pytest --cov --cov-report=term-missing
+      - name: Validate shipped configuration
+        run: for env in development paper production; do .venv/bin/aq --env $env config validate; done

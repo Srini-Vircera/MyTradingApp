@@ -1,0 +1,49 @@
+# =============================================================================
+# risk.yaml - limits enforced by the independent risk engine.
+#
+# The risk engine has FINAL authority over strategy suggestions.
+# Every number below is an EXAMPLE starting point, not a claim of optimality.
+# Research (backtests, walk-forward) should evaluate alternatives.
+#
+# Units:
+#   *_weight, *_exposure, *_loss, *_turnover, *_drift : fraction of equity
+#   net underlying exposure is beta-equivalent: 50% TQQQ = 1.5x QQQ
+# =============================================================================
+
+risk:
+  max_gross_exposure: 1.0            # sum of position weights (no margin in v1)
+  max_net_underlying_exposure: 2.0   # e.g. 66% TQQQ = 2.0x
+  max_inverse_net_exposure: 0.45     # e.g. 15% SQQQ = -0.45x (inverse ETFs decay)
+  max_leveraged_etf_weight: 0.66
+  default_max_position_weight: 1.0
+  max_position_weight:
+    TQQQ: 0.66
+    SQQQ: 0.15
+    QQQ: 1.0
+  max_daily_turnover: 1.0            # traded notional / equity per day
+  max_daily_loss: 0.06               # halt new risk if today's loss exceeds this
+  max_order_notional: 250000         # USD, hard per-order cap
+  max_portfolio_drift: 0.05          # tolerated difference between target and actual weights
+  min_cash_weight: 0.0
+
+  volatility_target:
+    enabled: true
+    annualized_target: 0.25          # target portfolio volatility
+    lookback_days: 20
+    min_scale: 0.0
+    max_scale: 1.0                   # vol targeting may only REDUCE exposure
+
+  volatility_regimes:                # percentile of trailing realised volatility
+    lookback_days: 252
+    low_below_pct: 0.25
+    elevated_above_pct: 0.75
+    extreme_above_pct: 0.95
+
+  # Drawdown from peak equity -> maximum net underlying exposure.
+  # Caps must never loosen as drawdown deepens; the deepest band must block
+  # risk-increasing orders (risk-reducing orders remain allowed).
+  drawdown_bands:
+    - {name: normal,    threshold: 0.00, max_net_exposure: 2.0}
+    - {name: caution,   threshold: 0.10, max_net_exposure: 1.5}
+    - {name: defensive, threshold: 0.20, max_net_exposure: 0.75}
+    - {name: emergency, threshold: 0.30, max_net_exposure: 0.0, block_risk_increasing: true}

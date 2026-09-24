@@ -1,0 +1,38 @@
+# =============================================================================
+# strategies.yaml - candidate strategies and ensemble settings.
+#
+# Every strategy starts in lifecycle "research". Promotion is governed by
+# docs/GOVERNANCE (see governance/lifecycle.py); nothing is ever promoted to
+# live_approved automatically. Parameters listed here are candidates to be
+# tested, not recommendations. param_grid defines neighbourhoods for
+# robustness testing (stable plateaus are preferred over sharp peaks).
+# The full candidate catalogue arrives in Milestone 4.
+# =============================================================================
+
+strategies:
+  ensemble:
+    method: equal                # equal | fixed | risk_adjusted | walk_forward
+    fixed_weights: {}
+    max_family_weight: 0.40      # no single family may dominate the ensemble
+    max_pairwise_correlation: 0.85
+
+  strategies:
+    - id: long_term_trend_sma
+      family: long_term_trend
+      params: {signal_symbol: QQQ, sma_window: 200}
+      param_grid: {sma_window: [200, 220, 230, 240, 250, 260]}
+      notes: Price relative to a long moving average. Candidate only.
+
+    - id: intermediate_trend_ma_stack
+      family: intermediate_trend
+      params: {signal_symbol: QQQ, fast: 20, mid: 50, slow: 100}
+      param_grid: {fast: [10, 20, 30], mid: [40, 50, 60], slow: [100, 120, 150]}
+
+    - id: momentum_multi_horizon
+      family: momentum
+      params: {signal_symbol: QQQ, horizons: "5,10,20,60,120"}
+
+    - id: volatility_regime
+      family: volatility_regime
+      params: {signal_symbol: QQQ, lookback: 20, history: 252}
+      param_grid: {lookback: [10, 20, 40]}

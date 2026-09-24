@@ -1,0 +1,19 @@
+# production.yaml - the production deployment.
+#
+# Deliberately ships in PAPER mode. Switching to live requires a human to
+# complete the checklist in docs/SAFETY.md, including:
+#   trading.mode: live
+#   trading.live_trading.enabled: true
+#   trading.live_trading.acknowledgement: "I understand that live mode trades real money"
+#   AQ_LIVE_TRADING_CONFIRM=yes-trade-real-money in the deployment environment
+# The software never changes these values itself.
+app:
+  environment: production
+logging:
+  level: INFO
+  format: json
+trading:
+  mode: paper
+  live_trading:
+    enabled: false
+    acknowledgement: ""

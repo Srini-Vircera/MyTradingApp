@@ -1,0 +1,96 @@
+# =============================================================================
+# base.yaml - settings shared by every environment.
+#
+# Load order: base.yaml -> risk.yaml -> strategies.yaml -> <environment>.yaml
+# Unknown keys are rejected on purpose, so typos fail at startup.
+# NEVER put credentials here. Use environment variables (see .env.example).
+# Validate any change with:   aq config validate --env <environment>
+# =============================================================================
+
+app:
+  name: adaptive-quant
+  state_dir: var/state
+
+logging:
+  level: INFO
+  format: json          # json (machine-readable) | console (human-readable)
+  directory: var/log
+
+trading:
+  # backtest | shadow | paper | live
+  #   shadow: compute and record orders, submit nothing
+  #   paper : submit orders to a broker PAPER account (no real money)
+  #   live  : real money. Blocked unless every step in docs/SAFETY.md is done.
+  mode: shadow
+  live_trading:
+    enabled: false
+    acknowledgement: ""
+  kill_switch:
+    state_file: var/state/kill_switch.json
+    audit_file: var/state/kill_switch_audit.jsonl
+    allow_risk_reducing_orders: true
+  allow_fractional_shares: true
+  # Skip trades whose weight change is smaller than this (fraction of equity).
+  rebalance_threshold_weight: 0.02
+  # A confirmed broker rejection is never retried blindly. 0 = never.
+  max_order_retries_on_confirmed_reject: 0
+
+universe:
+  signal_symbols: [QQQ]
+  instruments:
+    - {symbol: QQQ,  asset_class: etf,   leverage: 1.0}
+    - {symbol: TQQQ, asset_class: etf,   leverage: 3.0,  underlying: QQQ}
+    - {symbol: SQQQ, asset_class: etf,   leverage: -3.0, underlying: QQQ}
+    - {symbol: SPY,  asset_class: etf,   leverage: 1.0,  tradeable: false}
+    # NDX is optional signal-only data (availability depends on the provider).
+    - {symbol: NDX,  asset_class: index, leverage: 1.0,  tradeable: false}
+  benchmarks: [SPY, QQQ, TQQQ]
+
+data:
+  root_dir: var/data
+  primary_provider: csv
+  fallback_providers: []
+  staleness:
+    max_daily_bar_age_sessions: 1
+    max_intraday_bar_age_seconds: 180
+  max_abs_daily_return: 0.5
+
+schedule:
+  timezone: America/New_York
+  # Offsets are MINUTES BEFORE THE SESSION CLOSE, so early-close days
+  # (e.g. 13:00 ET) shift automatically. Example values, not optimal.
+  steps:
+    - {name: health_check,       minutes_before_close: 20}   # 15:40 on a normal day
+    - {name: market_data_update, minutes_before_close: 18}
+    - {name: indicators,         minutes_before_close: 15}
+    - {name: strategies,         minutes_before_close: 13}
+    - {name: risk,               minutes_before_close: 12}
+    - {name: portfolio_target,   minutes_before_close: 11}
+    - {name: order_submission,   minutes_before_close: 10}
+    - {name: fill_monitoring,    minutes_before_close: 5}
+    - {name: reconciliation,     minutes_before_close: -15}  # 15 min after close
+  no_new_orders_after_minutes_before_close: 5
+
+broker:
+  provider: alpaca
+  alpaca:
+    paper_base_url: https://paper-api.alpaca.markets
+    live_base_url: https://api.alpaca.markets
+    data_base_url: https://data.alpaca.markets
+    data_feed: iex
+    request_timeout_seconds: 10
+
+database:
+  pool_size: 5
+  statement_timeout_ms: 15000
+  echo_sql: false
+
+notifications:
+  min_severity: warning
+  email:
+    enabled: false
+    smtp_host: ""
+    smtp_port: 587
+    use_starttls: true
+    from_address: ""
+    to_addresses: []

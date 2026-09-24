@@ -1,0 +1,9 @@
+# development.yaml - local research and development.
+# Paper/live broker submission is not needed here; shadow mode is the default.
+app:
+  environment: development
+logging:
+  level: DEBUG
+  format: console
+trading:
+  mode: shadow

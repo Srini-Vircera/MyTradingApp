@@ -1,0 +1,83 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "adaptive-quant"
+version = "0.1.0"
+description = "Systematic, risk-first quantitative trading platform (paper trading by default)."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+dependencies = [
+    "pydantic>=2.7,<3",
+    "pydantic-settings>=2.3,<3",
+    "PyYAML>=6.0",
+    "structlog>=24.1",
+    "tzdata>=2024.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "types-PyYAML>=6.0",
+]
+
+[project.scripts]
+aq = "adaptive_quant.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/adaptive_quant"]
+
+# ---------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+markers = [
+    "integration: tests that exercise several components together",
+    "regression: golden-number tests that guard financial calculations",
+]
+filterwarnings = ["error"]
+
+# ---------------------------------------------------------------- ruff
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",   # pycodestyle / pyflakes
+    "I",             # isort
+    "B",             # bugbear
+    "UP",            # pyupgrade
+    "N",             # naming
+    "S",             # bandit (security)
+    "BLE",           # blind except
+    "DTZ",           # naive datetimes are forbidden
+    "RUF",
+    "SIM",
+    "PT",
+]
+ignore = [
+    "RUF001", "RUF002", "RUF003",
+    "N818",  # exception names like SafetyViolation read better without an Error suffix
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S108", "PT018"]
+
+# ---------------------------------------------------------------- mypy
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+files = ["src", "tests"]
+plugins = ["pydantic.mypy"]
+
+[tool.coverage.run]
+source = ["adaptive_quant"]
+branch = true
