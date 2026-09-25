@@ -189,6 +189,19 @@ Everything not listed here is in the repository.
 
 **Roll back:** redeploy the previous successful deployment of the service from Railway's deployment list. The start-up checks and the scheduler lock still apply.
 
+## Troubleshooting
+
+**The dashboard's deploy logs say `AQ_ROLE must be api, worker or migrate`.**
+- **What it means:** the dashboard service is running the Python api/worker image (`deploy/docker/app.Dockerfile`) instead of its own. The dashboard image (`deploy/docker/dashboard.Dockerfile`, Caddy) has no `AQ_ROLE` entrypoint, so it cannot print this message.
+- **Confirm it:** open the dashboard service's build logs.
+  - The right image builds `node:22-bookworm-slim` (`npm ci`, `npm run build`) and then `caddy:2.10-alpine`.
+  - The wrong one builds `python:3.12-slim-bookworm` (`pip install --require-hashes`, `tini`).
+- **Check, in the dashboard service's settings:**
+  1. The config-as-code path must be `deploy/railway/dashboard.json`, not `api.json` or `worker.json`. The config file overrides the Dockerfile path shown in the settings.
+  2. No `RAILWAY_DOCKERFILE_PATH` variable, including one inherited from shared or project variables, may point to `deploy/docker/app.Dockerfile`.
+  3. The service source must be the repository, not a Docker image. If the service was made by duplicating `api` or `worker`, recheck all of its settings.
+- **Then:** trigger a new build. Redeploying an old deployment reuses its old image.
+
 ## Portability
 
 The same images and variables run anywhere Docker runs:

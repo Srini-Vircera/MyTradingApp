@@ -165,3 +165,30 @@ def test_dockerfiles_use_only_mounts_railway_supports() -> None:
         text = (DEPLOY / "docker" / name).read_text()
         for mount in re.findall(r"--mount=(\S+)", text):
             assert "type=cache" in mount, f"{name}: unsupported mount {mount}"
+
+
+def test_dashboard_image_never_uses_the_python_entrypoint() -> None:
+    # The dashboard runs Caddy; only app.Dockerfile has the AQ_ROLE entrypoint.
+    text = (DEPLOY / "docker" / "dashboard.Dockerfile").read_text()
+    final = text[text.rindex("\nFROM ") :]  # the runtime stage
+    assert final.startswith("\nFROM caddy:")
+    assert "ENTRYPOINT" not in text
+    assert "entrypoint" not in text.lower()
+    assert "app.Dockerfile" not in text
+    assert final.rstrip().endswith(
+        'CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]'
+    )
+    dash = railway("dashboard")
+    assert dash["build"]["dockerfilePath"] == "deploy/docker/dashboard.Dockerfile"
+    for name in ("api", "worker"):
+        assert railway(name)["build"]["dockerfilePath"] == "deploy/docker/app.Dockerfile"
+
+
+def test_entrypoint_names_the_image_when_deployed_without_a_role() -> None:
+    r = entry(RAILWAY_SERVICE_NAME="dashboard")
+    assert r.returncode == 64
+    assert "AQ_ROLE must be api, worker or migrate (got '')" in r.stderr
+    assert "Python api/worker image (deploy/docker/app.Dockerfile)" in r.stderr
+    assert "running as service 'dashboard'" in r.stderr
+    assert "deploy/docker/dashboard.Dockerfile" in r.stderr
+    assert r.stdout == ""  # nothing is started
