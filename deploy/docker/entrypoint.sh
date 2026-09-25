@@ -64,6 +64,10 @@ case "${AQ_ROLE:-}" in
     ;;
   *)
     echo "AQ_ROLE must be api, worker or migrate (got '${AQ_ROLE:-}')" >&2
+    # Usually a service built from the wrong Dockerfile (e.g. the dashboard
+    # service deploying this image): say which image this is.
+    echo "This is the Python api/worker image (deploy/docker/app.Dockerfile)${RAILWAY_SERVICE_NAME:+, running as service '$RAILWAY_SERVICE_NAME'}." >&2
+    echo "The dashboard service must be built from deploy/docker/dashboard.Dockerfile (config file deploy/railway/dashboard.json); the api and worker services set AQ_ROLE." >&2
     exit 64
     ;;
 esac
