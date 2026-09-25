@@ -1,0 +1,223 @@
+# =============================================================================
+# base.yaml - settings shared by every environment.
+#
+# Load order: base.yaml -> risk.yaml -> strategies.yaml -> <environment>.yaml
+# Unknown keys are rejected on purpose, so typos fail at startup.
+# NEVER put credentials here. Use environment variables (see .env.example).
+# Validate any change with:   aq config validate --env <environment>
+# =============================================================================
+
+app:
+  name: adaptive-quant
+  state_dir: var/state
+
+logging:
+  level: INFO
+  format: json          # json (machine-readable) | console (human-readable)
+  directory: var/log
+
+trading:
+  # backtest | shadow | paper | live
+  #   shadow: compute and record orders, submit nothing
+  #   paper : submit orders to a broker PAPER account (no real money)
+  #   live  : real money. Blocked unless every step in docs/SAFETY.md is done.
+  mode: shadow
+  live_trading:
+    enabled: false
+    acknowledgement: ""
+  kill_switch:
+    state_file: var/state/kill_switch.json
+    audit_file: var/state/kill_switch_audit.jsonl
+    allow_risk_reducing_orders: true
+  allow_fractional_shares: true
+  # Skip trades whose weight change is smaller than this (fraction of equity).
+  rebalance_threshold_weight: 0.02
+  # A confirmed broker rejection is never retried blindly. 0 = never.
+  max_order_retries_on_confirmed_reject: 0
+  # Order planning (M9)
+  sizing_cash_buffer: 0.005          # size targets on (1 - buffer) of equity
+  max_price_deviation: 0.05          # price moved > 5% since the decision: no risk-increasing order
+  buying_power_buffer: 0.01          # buys use at most (1 - buffer) of broker buying power
+  # Reconciliation (M9): broker vs expected, beyond these => halt risk-increasing trading
+  reconciliation_qty_tolerance: 0.000001
+  reconciliation_cash_tolerance: 1.0 # USD
+
+universe:
+  signal_symbols: [QQQ]
+  instruments:
+    - {symbol: QQQ,  asset_class: etf,   leverage: 1.0}
+    - {symbol: TQQQ, asset_class: etf,   leverage: 3.0,  underlying: QQQ}
+    - {symbol: SQQQ, asset_class: etf,   leverage: -3.0, underlying: QQQ}
+    - {symbol: SPY,  asset_class: etf,   leverage: 1.0,  tradeable: false}
+    # NDX is optional signal-only data (availability depends on the provider).
+    - {symbol: NDX,  asset_class: index, leverage: 1.0,  tradeable: false}
+  benchmarks: [SPY, QQQ, TQQQ]
+
+data:
+  root_dir: var/data
+  # file | alpaca | polygon. "file" reads CSV/Parquet from data.file_import.directory
+  # and needs no API key; alpaca/polygon need keys in .env.
+  primary_provider: file
+  history_start: 1999-03-10          # QQQ's first trading day
+  staleness:
+    max_daily_bar_age_sessions: 1
+    max_intraday_bar_age_seconds: 180
+  max_abs_daily_return: 0.5          # larger close-to-close moves are flagged for review
+  http:
+    max_retries: 3
+    backoff_seconds: 1.0
+  file_import:
+    directory: var/data/import
+    adjustment: raw                  # raw | split | all - what the files contain
+  polygon:
+    base_url: https://api.polygon.io
+    request_timeout_seconds: 15
+    symbol_map: {NDX: "I:NDX"}      # index tickers need Polygon's I: prefix
+
+  # Synthetic leveraged-ETF history before real inception. ASSUMPTIONS - verify
+  # expense ratios against current prospectuses and supply a risk-free series
+  # (e.g. FRED DTB3 CSV) for realistic financing costs. See docs/DATA.md.
+  synthetic:
+    underlying_symbol: QQQ
+    underlying_expense_addback: 0.0020   # QQQ expense ratio: QQQ price return -> index return
+    swap_spread_annual: 0.0              # extra swap financing spread; calibrate on the overlap
+    risk_free:
+      constant_annual_rate: 0.02         # fallback only; recorded on every synthetic snapshot
+      csv_path: null                     # e.g. var/data/import/DTB3.csv
+    max_tracking_error_annual: 0.03      # synthetic vs real on the overlap must be within this
+    products:
+      TQQQ: {expense_ratio: 0.0084, inception: 2010-02-11}
+      SQQQ: {expense_ratio: 0.0095, inception: 2010-02-11}
+
+schedule:
+  timezone: America/New_York
+  # Offsets are MINUTES BEFORE THE SESSION CLOSE, so early-close days
+  # (e.g. 13:00 ET) shift automatically. Example values, not optimal.
+  steps:
+    - {name: health_check,       minutes_before_close: 20}   # 15:40 on a normal day
+    - {name: market_data_update, minutes_before_close: 18}
+    - {name: indicators,         minutes_before_close: 15}
+    - {name: strategies,         minutes_before_close: 13}
+    - {name: risk,               minutes_before_close: 12}
+    - {name: portfolio_target,   minutes_before_close: 11}
+    - {name: order_submission,   minutes_before_close: 10}
+    - {name: fill_monitoring,    minutes_before_close: 5}
+    - {name: reconciliation,     minutes_before_close: -15}  # 15 min after close
+  no_new_orders_after_minutes_before_close: 5
+
+broker:
+  provider: alpaca
+  alpaca:
+    paper_base_url: https://paper-api.alpaca.markets
+    live_base_url: https://api.alpaca.markets
+    data_base_url: https://data.alpaca.markets
+    data_feed: iex
+    request_timeout_seconds: 10
+
+database:
+  pool_size: 5
+  statement_timeout_ms: 15000
+  echo_sql: false
+
+api:                               # operator API (M11); token only from AQ_API_TOKEN
+  host: 127.0.0.1                  # localhost only by default
+  port: 8000
+  cors_origins: ["http://localhost:3000"]
+  max_page_size: 500
+  min_bearer_chars: 32             # minimum length of the AQ_API_TOKEN value
+
+notifications:
+  min_severity: warning
+  email:
+    enabled: false
+    smtp_host: ""
+    smtp_port: 587
+    use_starttls: true
+    from_address: ""
+    to_addresses: []
+
+# -----------------------------------------------------------------------------
+# Backtesting (Milestone 5). Every number is an ASSUMPTION to be researched.
+# Results are hypothetical; see docs/BACKTESTING.md.
+# -----------------------------------------------------------------------------
+backtest:
+  initial_capital: 100000
+  # near_close      decide at close - near_close_minutes, fill at that close
+  #                 (daily data: decision sees data through the PREVIOUS close)
+  # next_open       decide at the close, fill at the next session's open
+  # next_close      decide at the close, fill at the next session's close
+  # closing_auction decide AND fill at the same close - optimistic; flagged
+  execution: near_close
+  near_close_minutes: 15
+  execution_delay_bars: 0          # extra sessions between decision and fill
+  cash_interest_annual: 0.0        # interest on idle cash (0 = conservative)
+  sizing_cash_buffer: 0.005        # size orders on (1 - buffer) of equity: room for costs/gaps
+  use_synthetic_history: false     # true extends TQQQ/SQQQ before 2010 (labelled SYNTHETIC)
+  costs:
+    commission_per_share: 0.0
+    commission_per_order: 0.0
+    commission_minimum: 0.0
+    half_spread_bps: {default: 2.0, QQQ: 0.5, SPY: 0.5, TQQQ: 1.0, SQQQ: 2.0}
+    slippage_bps: 2.0
+    impact_coefficient_bps: 10.0   # impact = coef * sqrt(order shares / ADV shares)
+    adv_window: 20                 # sessions of volume known at decision time
+    max_participation: 0.05        # fill at most 5% of ADV per order; rest cancelled
+    unknown_volume: assume_liquid  # assume_liquid | reject (synthetic bars have no volume)
+  allocation:
+    long_mode: qqq_then_tqqq       # qqq_then_tqqq | tqqq_only | qqq_only
+    apply_risk_limits: true
+    risk_engine: true              # M7 ensemble + policy + risk engine (same code as live)
+    min_abs_exposure: 0.0          # |exposure| below this is held as cash
+  report_dir: var/reports
+
+# -----------------------------------------------------------------------------
+# Research robustness (Milestone 6). Evaluates HYPOTHETICAL backtests only.
+# Nothing here adopts parameters or promotes beyond "validated"; see docs/RESEARCH.md.
+# -----------------------------------------------------------------------------
+research:
+  output_dir: var/research
+  registry_path: var/research/trials.jsonl       # append-only: every trial ever run
+  governance_ledger: var/research/governance.jsonl
+  max_grid_points: 64              # a larger param_grid is refused (every point is a trial)
+  workers: 1                       # >1 runs trials in separate processes (identical results)
+  seed: 20240601                   # all resampling is seeded and reproducible
+  overfit_threshold: 0.5           # robustness score below this => potentially_overfit
+  pbo_partitions: 16               # CSCV blocks (even); C(16, 8) = 12,870 combinations
+  walk_forward:
+    scheme: rolling                # rolling | anchored
+    train_years: 8
+    validate_years: 2
+    test_years: 1
+    step_years: 1                  # >= test_years: OOS windows never overlap
+    top_k: 3                       # plateau-ranked train candidates tried on validation
+  bootstrap:
+    samples: 2000
+    mean_block_length: 20          # stationary bootstrap, mean block of ~1 month
+    confidence: 0.95
+  monte_carlo:
+    simulations: 1000              # trade-sequence, return-block and start-date resamples
+    cost_simulations: 10           # engine re-runs with costs scaled by a random factor
+    cost_multiplier_range: [0.5, 3.0]
+    delays: [0, 1, 2]              # extra sessions of signal delay (engine re-runs)
+    start_skip_fraction: 0.33
+    min_years: 3
+    top_n: 5                       # engine-based Monte Carlo for the top-ranked candidates
+  gates:                           # ALL must pass for automated research -> validated
+    dsr_min: 0.95
+    pbo_max: 0.30
+    robustness_min: 0.5
+    oos_sharpe_min: 0.0
+    fdr_q: 0.10
+    min_oos_sessions: 504
+    real_data_only: true           # synthetic OOS periods can never validate a strategy
+    min_sharpe_vs_benchmark: 0.0   # OOS Sharpe must at least match QQQ buy-and-hold (same dates)
+  scorecard_weights:               # percentile-rank weights; CAGR is deliberately absent
+    oos_sharpe: 3.0
+    oos_sortino: 2.0
+    oos_max_drawdown: 2.0
+    oos_calmar: 2.0
+    robustness: 3.0
+    regime_consistency: 1.5
+    diversification: 1.5
+    turnover: 1.0
+    execution: 0.5

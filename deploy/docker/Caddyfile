@@ -1,0 +1,76 @@
+# Dashboard web server (Caddy): serves the static dashboard and proxies the
+# operator API over the platform's private network, so the browser talks to a
+# single HTTPS origin and the API itself needs no public address.
+#
+# Environment:
+#   PORT          listening port (default 8080). TLS is terminated by the
+#                 platform edge (Railway) or a load balancer in front of this.
+#   DASHBOARD_ROOT static files (default /srv)
+#   API_UPSTREAM  host:port of the API service on the private network,
+#                 e.g. api.railway.internal:8000 (required)
+{
+	admin off
+	auto_https off
+	persist_config off
+	log {
+		output stdout
+		format json
+	}
+}
+
+:{$PORT:8080} {
+	log {
+		output stdout
+		format json
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+		-Server
+	}
+
+	route {
+		# platform health check (plain HTTP from inside the platform)
+		respond /healthz "ok" 200
+
+		# the edge terminates TLS; send any plain-HTTP request to HTTPS
+		@insecure header X-Forwarded-Proto http
+		redir @insecure https://{host}{uri} 308
+
+		# the operator API (bearer token checked by the API itself)
+		handle /api/v1/* {
+			request_body {
+				max_size 64KB
+			}
+			reverse_proxy {$API_UPSTREAM} {
+				transport http {
+					dial_timeout 5s
+					response_header_timeout 60s
+				}
+			}
+		}
+
+		# everything else is the static dashboard
+		handle {
+			root * {$DASHBOARD_ROOT:/srv}
+			header /_next/static/* Cache-Control "public, max-age=31536000, immutable"
+			file_server
+		}
+	}
+
+	handle_errors {
+		@notfound expression {err.status_code} == 404
+		handle @notfound {
+			root * {$DASHBOARD_ROOT:/srv}
+			rewrite * /404.html
+			file_server
+		}
+		respond "{err.status_code} {err.status_text}"
+	}
+}

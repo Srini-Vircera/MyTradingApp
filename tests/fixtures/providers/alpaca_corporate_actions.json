@@ -1,0 +1,18 @@
+{
+  "corporate_actions": {
+    "forward_splits": [
+      {"id": "a1", "symbol": "TQQQ", "cusip": "74347X831", "new_rate": 2, "old_rate": 1,
+       "process_date": "2022-01-13", "ex_date": "2022-01-13", "record_date": "2022-01-12",
+       "payable_date": "2022-01-12"},
+      {"id": "a2", "symbol": "OTHER", "cusip": "000000000", "new_rate": 3, "old_rate": 1,
+       "process_date": "2022-02-01", "ex_date": "2022-02-01"}
+    ],
+    "reverse_splits": [],
+    "cash_dividends": [
+      {"id": "a3", "symbol": "TQQQ", "cusip": "74347X831", "rate": 0.0127, "special": false,
+       "foreign": false, "process_date": "2023-12-27", "ex_date": "2023-12-20",
+       "record_date": "2023-12-21", "payable_date": "2023-12-27"}
+    ]
+  },
+  "next_page_token": null
+}

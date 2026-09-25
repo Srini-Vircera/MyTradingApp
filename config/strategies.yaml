@@ -1,0 +1,156 @@
+# =============================================================================
+# strategies.yaml - candidate strategies and ensemble settings.
+#
+# Every strategy is a HYPOTHESIS. None is claimed to have an edge; Milestones
+# 5-6 (backtests, walk-forward, robustness, multiple-testing controls) must
+# evaluate them. Parameters are candidate values, not recommendations.
+#
+# Governance (see docs/STRATEGIES.md and governance/lifecycle.py):
+#   * everything starts in lifecycle "research"
+#   * paper/shadow modes only run strategies promoted to >= "paper"
+#   * live mode only runs "live_approved" strategies, and declaring
+#     "live_approved" requires an `approval:` block written by a human
+#     (approved_by, approved_on, justification). Software never promotes.
+#
+# Keys per strategy:
+#   id              unique id (used in signals, reports and the audit trail)
+#   implementation  registered class (defaults to id) - `aq strategies list`
+#   family          must match the implementation's family
+#   params          overrides of the implementation's defaults (validated)
+#   param_grid      neighbourhood for robustness testing (every value validated)
+#
+# Validate with:  aq strategies validate
+# =============================================================================
+
+strategies:
+  ensemble:
+    method: equal                # equal | fixed | risk_adjusted | walk_forward
+    fixed_weights: {}
+    max_family_weight: 0.40      # no single family may dominate the ensemble
+    max_pairwise_correlation: 0.85
+    lookback_sessions: 252       # shadow-return history for clustering / weighting
+    min_history: 63              # below this, weighting falls back to equal
+    vol_window: 63               # risk_adjusted: inverse volatility window
+    refit_sessions: 21           # walk_forward: refit cadence (past data only)
+    shrinkage: 0.5               # walk_forward: shrink fitted weights towards equal
+
+  strategies:
+    # ------------------------------------------------------------ long-term trend
+    - id: ltt_sma_distance
+      family: long_term_trend
+      params: {window: 200, scale: 0.05, confirm_symbol: NDX}
+      param_grid: {window: [200, 220, 230, 240, 250, 260], scale: [0.03, 0.05, 0.08]}
+      notes: Price vs long SMA; NDX used as optional confirmation when available.
+
+    - id: ltt_trend_slope
+      family: long_term_trend
+      params: {window: 200}
+      param_grid: {window: [150, 200, 250], scale: [0.15, 0.25, 0.40]}
+
+    # ------------------------------------------------------------ intermediate / short-term trend
+    - id: it_ma_stack
+      family: intermediate_trend
+      params: {fast: 20, mid: 50, slow: 100}
+      param_grid: {fast: [10, 20, 30], mid: [40, 50, 60], slow: [100, 120, 150]}
+
+    - id: st_ema_cross
+      family: short_term_trend
+      params: {fast: 10, slow: 30}
+      param_grid: {fast: [5, 10, 15], slow: [20, 30, 40]}
+
+    # ------------------------------------------------------------ momentum
+    - id: mom_multi_horizon
+      family: momentum
+      params: {horizons: "5,10,20,60,120"}
+      param_grid: {vol_window: [40, 60, 90], scale: [0.5, 1.0, 1.5]}
+
+    - id: mom_time_series
+      family: momentum
+      params: {window: 252, skip: 21}
+      param_grid: {window: [189, 252, 315], skip: [0, 21]}
+
+    - id: mom_acceleration
+      family: momentum_acceleration
+      params: {window: 20, lag: 10}
+      param_grid: {window: [10, 20, 40], lag: [5, 10, 20]}
+
+    - id: bear_confirmed_trend
+      family: bearish_momentum
+      params: {max_short_exposure: 0.45}
+      param_grid: {ma_window: [150, 200, 250], mom_window: [40, 60, 90]}
+      notes: Bearish-only, small capped SQQQ exposure. Must beat cash out of sample.
+
+    # ------------------------------------------------------------ breakout
+    - id: bo_donchian
+      family: breakout
+      params: {window: 55}
+      param_grid: {window: [20, 40, 55, 80, 100]}
+
+    - id: bo_momentum_confirmed
+      family: breakout_plus_momentum
+      params: {window: 20, mom_window: 60}
+      param_grid: {window: [20, 40, 55], mom_window: [40, 60, 90]}
+
+    - id: bo_bollinger_squeeze
+      family: breakout
+      params: {window: 20}
+      param_grid: {window: [15, 20, 30], squeeze_percentile: [0.2, 0.3, 0.4]}
+
+    - id: bo_trend_volume
+      family: breakout
+      params: {window: 20, trend_window: 200}
+      param_grid: {window: [20, 40, 55], volume_factor: [1.1, 1.2, 1.5]}
+      notes: Volume confirmation is weak on IEX-only volume; synthetic history has none.
+
+    # ------------------------------------------------------------ mean reversion / extension
+    - id: mr_rsi_dip
+      family: mean_reversion_long
+      params: {rsi_window: 3, oversold: 15}
+      param_grid: {rsi_window: [2, 3, 5], oversold: [10, 15, 20, 25]}
+
+    - id: mr_drawdown_dip
+      family: mean_reversion_long
+      params: {dd_window: 10, atr_multiple: 2.0}
+      param_grid: {dd_window: [5, 10, 20], atr_multiple: [1.5, 2.0, 3.0]}
+
+    - id: dmr_extension_trim
+      family: defensive_mean_reversion
+      params: {z_window: 50, z_threshold: 2.0}
+      param_grid: {z_window: [30, 50, 100], z_threshold: [1.5, 2.0, 2.5]}
+      notes: Reduces TQQQ toward cash when stretched; never shorts.
+
+    - id: ext_bollinger_percent_b
+      family: market_extension
+      params: {window: 20}
+      param_grid: {window: [10, 20, 40], num_std: [1.5, 2.0, 2.5]}
+
+    # ------------------------------------------------------------ volatility / regimes
+    - id: vol_regime
+      family: volatility_regime
+      params: {vol_window: 20, vol_lookback: 252}
+      param_grid: {vol_window: [10, 20, 40], vol_lookback: [252, 504]}
+      notes: Risk-appetite input for sizing; boundaries mirror risk.yaml volatility_regimes.
+
+    - id: trend_vol_filter
+      family: trend_plus_volatility
+      params: {window: 200}
+      param_grid: {window: [150, 200, 250], elevated_multiplier: [0.25, 0.5, 0.75]}
+
+    - id: dd_aware_trend
+      family: drawdown_aware
+      params: {window: 200, dd_limit: 0.30}
+      param_grid: {dd_limit: [0.20, 0.30, 0.40], dd_window: [126, 252, 504]}
+
+    - id: regime_transition
+      family: regime_transition
+      params: {window: 200, lookback: 10}
+      param_grid: {window: [150, 200, 250], lookback: [5, 10, 20]}
+
+    # ------------------------------------------------------------ benchmarks (must be beaten)
+    - id: baseline_buy_hold
+      family: benchmark
+      notes: Always long QQQ. Every candidate is compared with this.
+
+    - id: baseline_cash
+      family: benchmark
+      notes: Always in cash.

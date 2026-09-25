@@ -1,0 +1,29 @@
+# production.yaml - the production deployment (Docker; Railway reference setup in
+# docs/DEPLOYMENT_RAILWAY.md).
+#
+# Ships in SHADOW mode: the scheduler reads the broker account, computes and
+# records orders, and submits nothing. Moving to Alpaca PAPER trading is a
+# reviewed change of `trading.mode` below. The container start-up check
+# (`aq deploy check`) refuses live mode in this deployment.
+#
+# Switching to live would require a human to complete the checklist in
+# docs/SAFETY.md, including:
+#   trading.mode: live
+#   trading.live_trading.enabled: true
+#   trading.live_trading.acknowledgement: "I understand that live mode trades real money"
+#   AQ_LIVE_TRADING_CONFIRM=yes-trade-real-money in the deployment environment
+# The software never changes these values itself.
+app:
+  environment: production
+logging:
+  level: INFO
+  format: json
+trading:
+  mode: shadow
+  live_trading:
+    enabled: false
+    acknowledgement: ""
+  kill_switch:
+    store: database       # shared by the api and worker containers; unreadable => engaged
+notifications:
+  min_severity: warning
