@@ -19,17 +19,11 @@ FROM python:3.12-slim-bookworm AS build
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /build
 COPY deploy/requirements.lock ./requirements.lock
-# Optional build secret "build_ca": an extra CA bundle for builds behind a
-# TLS-inspecting proxy (docker build --secret id=build_ca,src=ca.pem). Unused on Railway.
-RUN --mount=type=secret,id=build_ca,required=false \
-    if [ -f /run/secrets/build_ca ]; then export PIP_CERT=/run/secrets/build_ca; fi \
- && python -m venv /opt/venv \
+RUN python -m venv /opt/venv \
  && /opt/venv/bin/pip install --require-hashes --only-binary=:all: -r requirements.lock
 COPY pyproject.toml README.md ./
 COPY src ./src
-RUN --mount=type=secret,id=build_ca,required=false \
-    if [ -f /run/secrets/build_ca ]; then export PIP_CERT=/run/secrets/build_ca; fi \
- && /opt/venv/bin/pip install --no-deps . \
+RUN /opt/venv/bin/pip install --no-deps . \
  && /opt/venv/bin/aq version
 
 FROM python:3.12-slim-bookworm

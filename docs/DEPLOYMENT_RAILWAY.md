@@ -207,7 +207,6 @@ open http://localhost:8080
   - Run exactly one worker.
   - Terminate TLS in front of Caddy.
 - **Binding:** the entrypoint binds all interfaces, using IPv6 dual-stack where the kernel has IPv6 (Railway's private network) and IPv4 otherwise. `AQ_BIND_HOST` overrides it.
-- **Builds behind a TLS-inspecting proxy:** pass an extra CA bundle with `--secret id=build_ca,src=ca.pem`. It is unused on Railway.
 
 ## Known limitations
 

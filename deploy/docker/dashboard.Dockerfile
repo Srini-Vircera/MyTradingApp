@@ -8,10 +8,7 @@ ENV NEXT_TELEMETRY_DISABLED=1 \
     PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 WORKDIR /app
 COPY apps/dashboard/package.json apps/dashboard/package-lock.json ./
-# optional build secret "build_ca" (see app.Dockerfile); unused on Railway
-RUN --mount=type=secret,id=build_ca,required=false \
-    if [ -f /run/secrets/build_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/build_ca; fi \
- && npm ci --no-audit --no-fund
+RUN npm ci --no-audit --no-fund
 COPY apps/dashboard/ ./
 # same-origin: the browser calls /api/v1 on the dashboard's own origin (Caddy proxies it)
 ARG NEXT_PUBLIC_AQ_API_ORIGIN=same-origin

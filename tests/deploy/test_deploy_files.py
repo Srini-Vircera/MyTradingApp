@@ -157,3 +157,11 @@ def test_backup_scripts_never_print_the_url() -> None:
         text = (REPO_ROOT / "scripts" / name).read_text()
         assert "set -eu" in text
         assert not re.search(r"echo[^\n]*\$\{?(DATABASE_URL|TARGET_DATABASE_URL|url)\b", text)
+
+
+def test_dockerfiles_use_only_mounts_railway_supports() -> None:
+    # Railway's Dockerfile validation accepts only RUN --mount=type=cache
+    for name in ("app.Dockerfile", "dashboard.Dockerfile"):
+        text = (DEPLOY / "docker" / name).read_text()
+        for mount in re.findall(r"--mount=(\S+)", text):
+            assert "type=cache" in mount, f"{name}: unsupported mount {mount}"
