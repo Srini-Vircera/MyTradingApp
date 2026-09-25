@@ -22,8 +22,13 @@ var/
 # Node / dashboard (Milestone 12)
 node_modules/
 .next/
+apps/dashboard/out/
+apps/dashboard/test-results/
+apps/dashboard/playwright-report/
+*.tsbuildinfo
 
 # OS / editors
 .DS_Store
 .idea/
 .vscode/
+apps/dashboard/next-env.d.ts

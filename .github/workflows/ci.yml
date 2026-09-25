@@ -39,3 +39,30 @@ jobs:
         run: .venv/bin/pytest --cov --cov-report=term-missing
       - name: Validate shipped configuration
         run: for env in development paper production; do .venv/bin/aq --env $env config validate; done
+
+  dashboard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/dashboard/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: API types match the committed OpenAPI schema
+        run: npm run check:api
+      - name: Type check
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm test
+      - name: Build (static export)
+        run: npm run build
+      - name: End-to-end tests (mocked API)
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e

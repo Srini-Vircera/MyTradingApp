@@ -22,8 +22,8 @@ risk are grouped (M7) because they share the target-portfolio contract.
 | 9 | Broker abstraction, Alpaca paper, order planner/manager, reconciliation | **done** |
 | 10 | Scheduler, trading cycle, shadow mode, email notifications | **done** |
 | 11 | FastAPI | **done** |
-| 12 | Next.js dashboard | next |
-| 13 | Docker deployment, paper-vs-backtest report, AWS documentation | |
+| 12 | Next.js dashboard | **done** |
+| 13 | Docker deployment, paper-vs-backtest report, AWS documentation | next |
 
 ---
 
@@ -224,8 +224,21 @@ docker-compose PostgreSQL; CI workflow; design docs.
 - [x] OpenAPI schema committed, with a drift test.
 - [x] No endpoint can change the trading mode: route-level whitelist test, 404/405 on every mutation attempt, static import boundaries.
 
-### M12 — Dashboard
-**Acceptance:** Next.js/TypeScript pages: Overview, Portfolio, Strategies, Signals, Risk, Performance, Backtests, Orders, Executions, System Health, Configuration; prominent PAPER/LIVE banner; STOP AUTOMATED TRADING button with confirmation; charts per the spec.
+### M12 — Dashboard ✅
+**Deliverables** (see [DASHBOARD.md](DASHBOARD.md)):
+- `apps/dashboard`: a Next.js + TypeScript (strict) static export. It talks only to the operator API.
+- API types generated from `apps/api/openapi.json`, with a drift check.
+- Dependency-free SVG charts.
+- Vitest unit tests and Playwright end-to-end tests with a mocked API.
+- A `dashboard` CI job.
+
+**Acceptance:**
+- [x] Pages: Overview, Portfolio, Strategies, Signals, Risk, Performance, Backtests, Orders, Executions, System Health, Configuration, plus a cycle Explain view.
+- [x] Prominent mode banner on every page: PAPER amber, SHADOW blue, LIVE / REAL MONEY red; a missing or unknown mode is shown as unsafe.
+- [x] STOP AUTOMATED TRADING button on every page. It needs a named operator, a reason and the exact phrase; release is a separate flow needing `RE-ENABLE TRADING`.
+- [x] Charts: equity, drawdown, daily returns, allocation over time, drawdown-band history and a signal heatmap. Each has tooltips and a table view.
+- [x] No mode, order, configuration or promotion controls, enforced by static tests. The only writes are the two kill-switch calls.
+- [x] The operator token is entered at runtime, kept only for the tab, sent only in the Authorization header, and never built in, persisted or logged.
 
 ### M13 — Deployment
 **Acceptance:** Dockerfiles for api/scheduler/dashboard; docker-compose full stack; paper-vs-backtest report; AWS guide (ECS Fargate, RDS, EventBridge, Secrets Manager, CloudWatch, S3) with least-privilege IAM notes.
