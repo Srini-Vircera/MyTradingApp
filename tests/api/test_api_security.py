@@ -44,8 +44,14 @@ def routes(client: TestClient) -> list[APIRoute]:
     return found
 
 
-def test_liveness_is_public_everything_else_needs_the_token(client: TestClient) -> None:
+PROBES = {"/api/v1/health/live", "/api/v1/health/ready"}
+
+
+def test_probes_are_public_everything_else_needs_the_token(client: TestClient) -> None:
     assert client.get("/api/v1/health/live").json() == {"status": "ok"}
+    ready = client.get("/api/v1/health/ready")  # no database configured in this client
+    assert ready.status_code == 503
+    assert ready.json() == {"status": "not ready"}  # no internals
     for path in GET_PAGES:
         for headers in ({}, {"Authorization": "Bearer wrong"}, {"Authorization": f"Basic {TOKEN}"}):
             r = client.get(path, headers=headers)
@@ -56,7 +62,7 @@ def test_liveness_is_public_everything_else_needs_the_token(client: TestClient) 
 
 
 def test_every_route_is_covered_by_the_page_list(client: TestClient) -> None:
-    documented = {p.replace("/x/", "/{cycle_id}/") for p in GET_PAGES} | {"/api/v1/health/live"}
+    documented = {p.replace("/x/", "/{cycle_id}/") for p in GET_PAGES} | PROBES
     get_paths = {r.path for r in routes(client) if "GET" in (r.methods or ())}
     assert get_paths == documented
 

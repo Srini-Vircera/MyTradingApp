@@ -33,6 +33,7 @@ from adaptive_quant.persistence.records import (
     DecisionRecord,
     ExecutionRecord,
     IntentView,
+    Json,
     LifecycleEventRecord,
     OrderUpdate,
     ReconciliationView,
@@ -748,6 +749,37 @@ class MonitoringRepository(_Repo):
     ) -> None:
         with self.db.session() as s:
             s.add(m.KillSwitchEvent(engaged=engaged, actor=actor, reason=reason, at=ensure_utc(at)))
+
+    # ------------------------------------------------------------ kill switch (shared)
+    def read_kill_switch(self) -> Json | None:
+        """The shared kill-switch state, or ``None`` if it was never written."""
+        with self.db.session() as s:
+            row = s.get(m.KillSwitchStateRow, 1)
+            if row is None:
+                return None
+            return {
+                "engaged": row.engaged,
+                "actor": row.actor,
+                "reason": row.reason,
+                "changed_at": row.changed_at,
+            }
+
+    def write_kill_switch(self, engaged: bool, actor: str, reason: str, at: datetime) -> None:
+        """Set the shared state (upsert of the single row)."""
+        values = {
+            "id": 1,
+            "engaged": engaged,
+            "actor": actor,
+            "reason": reason,
+            "changed_at": ensure_utc(at),
+        }
+        stmt = insert(m.KillSwitchStateRow).values(**values)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["id"],
+            set_={**{k: v for k, v in values.items() if k != "id"}, "updated_at": func.now()},
+        )
+        with self.db.session() as s:
+            s.execute(stmt)
 
     def record_notification(
         self,

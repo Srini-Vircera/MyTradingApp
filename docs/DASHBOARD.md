@@ -52,8 +52,10 @@ Light and dark themes follow the OS setting.
   - It is kept in `sessionStorage` for that tab only; it is never built into the bundle, written to `localStorage` or cookies, put in a URL, or logged.
   - A 401 clears it.
 - **Requests:** API calls send `Authorization: Bearer …` with `cache: no-store`, no credentials and no referrer.
-- **Content Security Policy (production build):** scripts and styles come from the dashboard's own origin; network requests go only to the configured API origin. Web-server headers (frame-ancestors, HSTS) arrive with TLS deployment in M13.
-- **API origin:** set at build time with `NEXT_PUBLIC_AQ_API_ORIGIN` (default `http://localhost:8000`). It is a URL, not a secret. The dashboard's origin must be listed in the API's `api.cors_origins`, which is `http://localhost:3000` by default.
+- **Content Security Policy (production build):** scripts and styles come from the dashboard's own origin; network requests go only to the configured API origin. The container's Caddy server adds frame-ancestors, HSTS and the other headers.
+- **API origin:** set at build time with `NEXT_PUBLIC_AQ_API_ORIGIN` (default `http://localhost:8000`). It is a URL, not a secret.
+  - Directly: the dashboard's origin must be listed in the API's `api.cors_origins`, which is `http://localhost:3000` by default.
+  - Container image: builds with `same-origin`, and its Caddy server proxies `/api/v1` to the private API. No CORS is involved and the policy allows `connect-src 'self'` only ([DEPLOYMENT_RAILWAY.md](DEPLOYMENT_RAILWAY.md)).
 
 ## Develop and test
 

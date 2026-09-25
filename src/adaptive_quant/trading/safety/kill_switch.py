@@ -13,8 +13,9 @@ Semantics
   and the exact confirmation phrase :data:`RELEASE_CONFIRMATION`.
 * Every change is appended to an audit log (JSON lines).
 
-The state lives behind :class:`KillSwitchStore` so a database-backed store can
-replace the file store (Milestone 8) without changing callers.
+The state lives behind :class:`KillSwitchStore`: a file store for a single
+host, or the database store in :mod:`.kill_switch_store` shared by every
+service of a multi-container deployment (database unreachable -> engaged).
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ from typing import Any, Protocol
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from adaptive_quant.core.clock import Clock
-from adaptive_quant.core.errors import SafetyViolation
+from adaptive_quant.core.errors import PersistenceError, SafetyViolation
 from adaptive_quant.core.models import UtcDatetime
 from adaptive_quant.observability.logging import get_logger
 
@@ -111,7 +112,7 @@ class KillSwitch:
     def status(self) -> KillSwitchStatus:
         try:
             state = self._store.read()
-        except (OSError, ValidationError, ValueError) as exc:
+        except (OSError, ValidationError, ValueError, PersistenceError) as exc:
             _log.error("kill_switch_state_unreadable", error=str(exc))
             return KillSwitchStatus(
                 engaged=True,

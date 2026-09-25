@@ -2,7 +2,7 @@
 PY ?= .venv/bin/python
 UV ?= uv
 
-.PHONY: help install lint format typecheck test cov check db-up db-down db-upgrade validate
+.PHONY: help install lint format typecheck test cov check db-up db-down db-upgrade validate stack-up stack-down
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -38,6 +38,12 @@ db-up:  ## Start local PostgreSQL
 
 db-down:  ## Stop local PostgreSQL (data volume is kept)
 	docker compose down
+
+stack-up:  ## Build and start the full container stack (dashboard on localhost:8080)
+	docker compose --profile stack up -d --build
+
+stack-down:  ## Stop the full container stack (volumes are kept)
+	docker compose --profile stack down
 
 db-upgrade:  ## Apply database migrations (needs DATABASE_URL in .env)
 	$(PY) -m adaptive_quant.cli db upgrade

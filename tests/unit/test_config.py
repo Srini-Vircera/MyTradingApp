@@ -301,12 +301,14 @@ class TestLiveTradingPolicy:
             "production.yaml", lambda d: d["trading"]["live_trading"].update({"enabled": True})
         )
         loaded = load_config("production", config_dir=config_dir)
-        assert loaded.settings.trading.mode is TradingMode.PAPER
+        assert loaded.settings.trading.mode is TradingMode.SHADOW  # shipped default
+        assert not loaded.settings.trading.mode.uses_real_money
         assert any("live trading stays OFF" in w for w in loaded.warnings)
 
     def test_env_confirmation_alone_does_nothing(self, config_dir: Path) -> None:
         loaded = load_config("production", config_dir=config_dir, secrets=_confirmed())
-        assert loaded.settings.trading.mode is TradingMode.PAPER
+        assert loaded.settings.trading.mode is TradingMode.SHADOW
+        assert not loaded.settings.trading.mode.uses_real_money
 
     def test_confirm_from_process_env(
         self, config_dir: Path, patch_yaml: PatchYaml, monkeypatch: pytest.MonkeyPatch

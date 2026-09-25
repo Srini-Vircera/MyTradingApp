@@ -33,10 +33,22 @@ export type ReadQuery<P extends ReadPath> = GetOp<P> extends { parameters: { que
 export const ENGAGE_CONFIRMATION = "STOP AUTOMATED TRADING";
 export const RELEASE_CONFIRMATION = "RE-ENABLE TRADING";
 
-/** Origin of the operator API (a public URL, not a secret). */
+export const SAME_ORIGIN = "same-origin";
+
+/**
+ * The configured API origin (a URL, not a secret), or ``null`` when the API is
+ * served from the dashboard's own origin through its reverse proxy (the
+ * container deployment: NEXT_PUBLIC_AQ_API_ORIGIN=same-origin).
+ */
+export function configuredApiOrigin(): string | null {
+  const configured = (process.env.NEXT_PUBLIC_AQ_API_ORIGIN ?? "").trim();
+  if (configured === SAME_ORIGIN) return null;
+  return configured || "http://localhost:8000";
+}
+
+/** Origin of the operator API. */
 export function apiOrigin(): string {
-  const configured = process.env.NEXT_PUBLIC_AQ_API_ORIGIN;
-  return (configured && configured.trim()) || "http://localhost:8000";
+  return configuredApiOrigin() ?? window.location.origin;
 }
 
 export class ApiError extends Error {

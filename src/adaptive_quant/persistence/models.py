@@ -31,6 +31,7 @@ from sqlalchemy import (
     Integer,
     MetaData,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -471,6 +472,23 @@ class KillSwitchEvent(Base):
     reason: Mapped[str] = mapped_column(Text)
     at: Mapped[datetime] = mapped_column(TS)
     created_at: Mapped[datetime] = _created()
+
+
+class KillSwitchStateRow(Base):
+    """The current kill-switch state shared by every process (single row, id = 1).
+
+    Updated in place; every change is also appended to ``kill_switch_events``.
+    A missing row means "never released" and is read as engaged (fail closed).
+    """
+
+    __tablename__ = "kill_switch_state"
+    __table_args__ = (CheckConstraint("id = 1", name="single_row"),)
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    engaged: Mapped[bool] = mapped_column(Boolean)
+    actor: Mapped[str] = mapped_column(String(128))
+    reason: Mapped[str] = mapped_column(Text)
+    changed_at: Mapped[datetime] = mapped_column(TS)
+    updated_at: Mapped[datetime] = _created()
 
 
 class NotificationSent(Base):

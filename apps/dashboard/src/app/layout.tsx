@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Shell } from "@/components/Shell";
-import { apiOrigin } from "@/lib/api";
+import { configuredApiOrigin } from "@/lib/api";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -20,7 +20,7 @@ const CSP = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "font-src 'self'",
-  `connect-src 'self' ${apiOrigin()}`,
+  `connect-src 'self'${configuredApiOrigin() ? ` ${configuredApiOrigin()}` : ""}`,
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'none'",

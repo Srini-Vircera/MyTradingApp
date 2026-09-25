@@ -1,8 +1,9 @@
 """Credentials, loaded only from environment variables (or a local ``.env`` file).
 
 Secrets never live in YAML: the loader rejects secret-looking keys in config
-files. In AWS the same variables are injected from Secrets Manager by the ECS
-task definition, so application code is identical in every environment.
+files. In a deployment the same variables are injected by the platform (for
+example Railway sealed service variables), so application code is identical in
+every environment.
 """
 
 from __future__ import annotations

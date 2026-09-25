@@ -21,7 +21,7 @@ aq api openapi > apps/api/openapi.json   # regenerate the committed schema
 
 | Control | Behaviour |
 |---|---|
-| Authentication | One operator bearer token (`Authorization: Bearer <AQ_API_TOKEN>`), compared in constant time. The server refuses to start with a missing or short token (`api.min_bearer_chars`, default 32). Failed attempts are logged without the supplied value. Only `GET /api/v1/health/live` is public |
+| Authentication | One operator bearer token (`Authorization: Bearer <AQ_API_TOKEN>`), compared in constant time. The server refuses to start with a missing or short token (`api.min_bearer_chars`, default 32). Failed attempts are logged without the supplied value. Only the probes `GET /api/v1/health/live` (process up) and `GET /api/v1/health/ready` (database reachable and migrated; 503 otherwise, no details) are public |
 | Allowed mutations | Exactly two: `POST /kill-switch/engage` and `POST /kill-switch/release`. A test lists every route (including those in the OpenAPI schema) and fails if any other non-GET route exists |
 | Kill-switch confirmation | `engage` needs `confirm: "STOP AUTOMATED TRADING"`; `release` needs `confirm: "RE-ENABLE TRADING"`. Both need a named `actor` and a `reason`. Unknown fields are rejected. Actions are recorded in the kill-switch audit file and `kill_switch_events` (as `api:<actor>`) |
 | Trading mode | Read-only. `/configuration` reports `changeable_via_api: false`, and the only way to change the mode is editing YAML and restarting (see [SAFETY.md](SAFETY.md)) |

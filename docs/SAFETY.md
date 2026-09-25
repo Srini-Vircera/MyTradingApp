@@ -50,8 +50,24 @@ aq kill-switch release --actor "your name" --reason "why" --confirm "RE-ENABLE T
   (`trading.kill_switch.allow_risk_reducing_orders`).
 * **Fresh installs start engaged.** A missing, corrupt or unreadable state file
   also counts as engaged (fail closed).
+* **Where the state lives:** `trading.kill_switch.store: file` (one host) or
+  `database` (the deployment: the API and the worker share the
+  `kill_switch_state` row). With the database store an unreachable database
+  also counts as engaged, and changes are audited in `kill_switch_events`.
 * Automated components (actor `system:*`) can engage but never release.
-* Every change is appended to `var/state/kill_switch_audit.jsonl`; nothing is deleted.
+* Every change is appended to `var/state/kill_switch_audit.jsonl` (file store) or
+  `kill_switch_events` (database store); nothing is deleted.
+
+## Deployment guard
+
+Every container runs `aq deploy check` before it starts and refuses to run if:
+- the mode is live, or live trading is enabled in the configuration;
+- `AQ_LIVE_TRADING_CONFIRM` is set at all;
+- the kill switch is not the shared database store;
+- the broker endpoint is not Alpaca *paper*.
+
+Only one scheduler can run at a time (a PostgreSQL advisory lock), so an
+overlapping redeploy or an extra replica cannot trade twice.
 
 ## Refusal conditions (pre-trade gate)
 
@@ -73,7 +89,7 @@ crashes counts as failed; no checks configured counts as failed.
 
 ## Credentials
 
-Only via environment variables (`.env` locally, AWS Secrets Manager → ECS task
-environment in production). Config files containing secret-looking keys are
+Only via environment variables (`.env` locally; sealed service variables on
+Railway, see [DEPLOYMENT_RAILWAY.md](DEPLOYMENT_RAILWAY.md)). Config files containing secret-looking keys are
 rejected; logs redact secret-looking fields; `aq secrets` shows only whether
 each credential is set.

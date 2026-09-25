@@ -1,5 +1,13 @@
-# Local development services. Application containers (api, scheduler,
-# dashboard) are added in later milestones; see docs/ROADMAP.md.
+# Local services.
+#
+#   docker compose up -d postgres            PostgreSQL only (development; the default)
+#   docker compose --profile stack up -d     the full stack, built from the same
+#                                            Dockerfiles as the Railway deployment
+#
+# The stack mirrors docs/DEPLOYMENT_RAILWAY.md: the API has no published port
+# (the dashboard proxies /api/v1 to it on the private network), migrations run
+# once before the API starts, and only the worker keeps state on a volume.
+# Secrets come from .env (never committed). Live trading is refused at start-up.
 services:
   postgres:
     image: postgres:16-alpine
@@ -18,5 +26,68 @@ services:
       timeout: 5s
       retries: 10
 
+  migrate:
+    profiles: ["stack"]
+    build: { context: ., dockerfile: deploy/docker/app.Dockerfile }
+    image: adaptive-quant-app:local
+    environment: &app-env
+      AQ_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-aq}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-adaptive_quant}
+    command: ["aq", "db", "upgrade"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  api:
+    profiles: ["stack"]
+    image: adaptive-quant-app:local
+    environment:
+      <<: *app-env
+      AQ_ROLE: api
+      PORT: "8000"
+      AQ_API_TOKEN: ${AQ_API_TOKEN:-}   # required; the start-up check refuses a missing or weak token
+    expose: ["8000"]            # private network only
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/api/v1/health/ready', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    profiles: ["stack"]
+    image: adaptive-quant-app:local
+    environment:
+      <<: *app-env
+      AQ_ROLE: worker
+      AQ_SCHEDULER_ENABLED: ${AQ_SCHEDULER_ENABLED:-false}
+      ALPACA_API_KEY_ID: ${ALPACA_API_KEY_ID:-}
+      ALPACA_API_SECRET_KEY: ${ALPACA_API_SECRET_KEY:-}
+      POLYGON_API_KEY: ${POLYGON_API_KEY:-}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+    volumes:
+      - worker-var:/app/var
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    restart: on-failure
+    stop_grace_period: 60s
+
+  dashboard:
+    profiles: ["stack"]
+    build: { context: ., dockerfile: deploy/docker/dashboard.Dockerfile }
+    environment:
+      PORT: "8080"
+      API_UPSTREAM: api:8000
+    ports:
+      - "127.0.0.1:8080:8080"   # http://localhost:8080 (put TLS in front for anything else)
+    depends_on:
+      api: { condition: service_healthy }
+    restart: on-failure
+
 volumes:
   pgdata:
+  worker-var:

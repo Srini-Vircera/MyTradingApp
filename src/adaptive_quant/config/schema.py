@@ -16,7 +16,7 @@ import re
 from datetime import date
 from itertools import pairwise
 from pathlib import Path
-from typing import Annotated, Any, Self
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -76,6 +76,9 @@ class LiveTradingConfig(Section):
 
 
 class KillSwitchConfig(Section):
+    #: ``file``: one host (development). ``database``: shared by every service of a
+    #: multi-container deployment (API + worker); unreadable state reads as engaged.
+    store: Literal["file", "database"] = "file"
     state_file: Path = Path("var/state/kill_switch.json")
     audit_file: Path = Path("var/state/kill_switch_audit.jsonl")
     allow_risk_reducing_orders: bool = True

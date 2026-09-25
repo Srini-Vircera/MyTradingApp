@@ -1,8 +1,8 @@
 """FastAPI application factory.
 
-* Every endpoint except ``GET /api/v1/health/live`` requires the operator bearer
-  token (``AQ_API_TOKEN``; constant-time comparison; failures logged without
-  the supplied value).
+* Every endpoint except the ``GET /api/v1/health/live`` and ``/health/ready``
+  probes requires the operator bearer token (``AQ_API_TOKEN``; constant-time
+  comparison; failures logged without the supplied value).
 * Read endpoints only. The **only** state-changing endpoints are the kill
   switch ``engage`` / ``release``, each requiring a typed confirmation phrase and
   a named operator. No endpoint can change the trading mode, edit
@@ -184,6 +184,27 @@ def create_app(services: ApiServices) -> FastAPI:
     def live() -> dict[str, str]:
         """Liveness probe (no authentication, no internals)."""
         return {"status": "ok"}
+
+    @app.get(
+        f"{API_PREFIX}/health/ready",
+        tags=["system"],
+        responses={503: {"description": "not ready"}},
+    )
+    def ready() -> JSONResponse:
+        """Readiness probe for the deployment platform (no authentication, no internals).
+
+        Ready only when the audit database is configured, reachable and migrated
+        to the head revision."""
+        ok = False
+        if services.db is not None:
+            try:
+                services.db.ping()
+                ok = migrate.current_revision(services.db) == migrate.head_revision()
+            except (DatabaseUnavailableError, PersistenceError):
+                ok = False
+        return JSONResponse(
+            {"status": "ready" if ok else "not ready"}, status_code=200 if ok else 503
+        )
 
     app.include_router(_read_router(services))
     app.include_router(_control_router(services))
@@ -468,8 +489,8 @@ def _control_router(sv: ApiServices) -> APIRouter:
     )
 
     def record(engaged: bool, body: KillSwitchRequest) -> None:
-        if sv.db is None:
-            return
+        if sv.db is None or sv.loaded.settings.trading.kill_switch.store == "database":
+            return  # the database store already appends to kill_switch_events
         # the file-based kill switch (with its own audit log) is authoritative
         with contextlib.suppress(DatabaseUnavailableError, PersistenceError):
             MonitoringRepository(sv.db).record_kill_switch_event(

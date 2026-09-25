@@ -803,6 +803,29 @@
         ]
       }
     },
+    "/api/v1/health/ready": {
+      "get": {
+        "description": "Readiness probe for the deployment platform (no authentication, no internals).\n\nReady only when the audit database is configured, reachable and migrated\nto the head revision.",
+        "operationId": "ready_api_v1_health_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "description": "not ready"
+          }
+        },
+        "summary": "Ready",
+        "tags": [
+          "system"
+        ]
+      }
+    },
     "/api/v1/kill-switch": {
       "get": {
         "operationId": "kill_switch_status_api_v1_kill_switch_get",

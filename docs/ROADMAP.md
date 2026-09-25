@@ -23,7 +23,7 @@ risk are grouped (M7) because they share the target-portfolio contract.
 | 10 | Scheduler, trading cycle, shadow mode, email notifications | **done** |
 | 11 | FastAPI | **done** |
 | 12 | Next.js dashboard | **done** |
-| 13 | Docker deployment, paper-vs-backtest report, AWS documentation | next |
+| 13 | Docker deployment on Railway Pro (paper-vs-backtest report pending paper history) | **done** |
 
 ---
 
@@ -240,5 +240,31 @@ docker-compose PostgreSQL; CI workflow; design docs.
 - [x] No mode, order, configuration or promotion controls, enforced by static tests. The only writes are the two kill-switch calls.
 - [x] The operator token is entered at runtime, kept only for the tab, sent only in the Authorization header, and never built in, persisted or logged.
 
-### M13 — Deployment
-**Acceptance:** Dockerfiles for api/scheduler/dashboard; docker-compose full stack; paper-vs-backtest report; AWS guide (ECS Fargate, RDS, EventBridge, Secrets Manager, CloudWatch, S3) with least-privilege IAM notes.
+### M13 — Deployment (Railway Pro) ✅
+The target changed from AWS to **Railway Pro**. The images stay plain Docker and portable.
+
+**Deliverables** (see [DEPLOYMENT_RAILWAY.md](DEPLOYMENT_RAILWAY.md)):
+- **One Python image** (`deploy/docker/app.Dockerfile`) for the `api` and `worker` roles:
+  - hash-pinned dependencies and checksum-pinned `tini`;
+  - runs as a non-root user;
+  - configuration validated at build time.
+- **Dashboard image:** Caddy serves the static export and proxies `/api/v1` to the private API, with security headers and an HTTP→HTTPS redirect.
+- **Railway config-as-code** for each service: pre-deploy migrations, health checks, `ON_FAILURE` restarts, one replica.
+- **`docker compose --profile stack`** runs the same topology locally.
+- **Shared kill switch** (`trading.kill_switch.store: database`, migration 0003). It fails closed when the database is unreachable.
+- **`GET /api/v1/health/ready`** (database reachable and migrated) for platform health checks.
+- **`aq deploy check`** start-up guard, which refuses live mode, `AQ_LIVE_TRADING_CONFIRM`, a non-paper broker endpoint and a file kill switch.
+- **Single-scheduler advisory lock.**
+- **`aq api serve --host/--port/--behind-proxy`**; JSON logs for long-running services.
+- **`production.yaml` now ships in SHADOW mode.**
+- **Backup and restore scripts** with a tested restore drill.
+- **CI:** image builds and a stack smoke test (real API behind the production Caddyfile).
+
+**Acceptance:**
+- [x] Dockerfiles for api/worker/dashboard; full stack in docker compose; both images built and run together locally.
+- [x] Private networking: only the dashboard is public; the API is reachable only through the proxy.
+- [x] Migrations before each API deploy; readiness requires the head revision.
+- [x] Live trading refused at start-up; `production.yaml` ships in shadow mode.
+- [x] One scheduler at a time, even across overlapping deploys.
+- [x] Backups documented, with a tested restore drill.
+- [ ] Paper-vs-backtest report. Deferred: it needs recorded paper-trading history.

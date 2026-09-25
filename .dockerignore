@@ -1,0 +1,23 @@
+# Keep secrets, state and build output out of every image build context.
+.env
+.env.*
+!.env.example
+.git
+**/__pycache__
+**/*.pyc
+.venv
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+var
+dist
+build
+**/node_modules
+apps/dashboard/.next
+apps/dashboard/out
+apps/dashboard/test-results
+apps/dashboard/playwright-report
+apps/dashboard/*.tsbuildinfo
+apps/dashboard/next-env.d.ts

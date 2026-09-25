@@ -16,25 +16,28 @@ import signal
 
 from adaptive_quant.cli_db import open_database
 from adaptive_quant.config.loader import LoadedConfig
+from adaptive_quant.config.schema import Settings
 from adaptive_quant.config.secrets import Secrets
 from adaptive_quant.core.clock import MARKET_TZ, Clock
 from adaptive_quant.core.enums import TradingMode
 from adaptive_quant.core.errors import ConfigurationError, SafetyViolation
 from adaptive_quant.notifications.base import NotificationRouter, Notifier
 from adaptive_quant.notifications.email_channel import EmailNotifier
+from adaptive_quant.persistence.locks import AdvisoryLock
 from adaptive_quant.persistence.repositories import CycleRepository
-from adaptive_quant.quant.data.calendar import nyse_calendar
+from adaptive_quant.quant.data.calendar import TradingCalendar, nyse_calendar
 from adaptive_quant.quant.data.factory import build_validator
 from adaptive_quant.quant.strategies.catalog import StrategyCatalog
 from adaptive_quant.trading.brokers.factory import build_broker
 from adaptive_quant.trading.reconciliation.reconciler import acknowledge
-from adaptive_quant.trading.safety.kill_switch import FileKillSwitchStore, KillSwitch
+from adaptive_quant.trading.safety.kill_switch_store import build_kill_switch
 from adaptive_quant.trading.scheduler.cycle import CycleDeps
 from adaptive_quant.trading.scheduler.data import StoreCycleData
 from adaptive_quant.trading.scheduler.runner import Scheduler
 from adaptive_quant.trading.scheduler.schedule import plan_at, validate_schedule
 
 EXIT_OK = 0
+SINGLE_INSTANCE_WAIT_SECONDS = 120.0
 
 
 def register(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -67,7 +70,28 @@ def run(args: argparse.Namespace, loaded: LoadedConfig, secrets: Secrets, clock:
         print(f"reconciliation failure acknowledged by {args.actor}")
         return EXIT_OK
     deps = build_deps(loaded, secrets, clock)
-    scheduler = Scheduler(deps)
+    # Never two schedulers at once (e.g. an overlapping redeploy): wait briefly for
+    # a previous instance to shut down, then refuse.
+    lock = AdvisoryLock(deps.db, f"aq-scheduler-{s.app.environment.value}")
+    if not lock.acquire(wait_seconds=SINGLE_INSTANCE_WAIT_SECONDS):
+        raise SafetyViolation(
+            "another scheduler instance holds the single-instance lock",
+            hint="only one worker may run the trading cycle; check for a duplicate "
+            "service or replica (numReplicas must be 1)",
+        )
+    try:
+        return _run_scheduler(args, Scheduler(deps), clock, calendar, s)
+    finally:
+        lock.release()
+
+
+def _run_scheduler(
+    args: argparse.Namespace,
+    scheduler: Scheduler,
+    clock: Clock,
+    calendar: TradingCalendar,
+    s: Settings,
+) -> int:
     if args.once:
         ran = scheduler.tick()
         for step, status in ran.items():
@@ -107,14 +131,14 @@ def build_deps(loaded: LoadedConfig, secrets: Secrets, clock: Clock) -> CycleDep
     calendar = nyse_calendar()
     ids = {x.strategy_id for x in strategies}
     symbols = sorted({*s.universe.tradeable_symbols, *(x.signal_symbol for x in strategies)})
-    ks_cfg = s.trading.kill_switch
+    db = open_database(loaded, secrets)
     return CycleDeps(
         settings=s,
         config_version=loaded.config_version,
         config_record_source=loaded,
         calendar=calendar,
         clock=clock,
-        db=open_database(loaded, secrets),
+        db=db,
         broker=build_broker(loaded, secrets, clock),
         data=StoreCycleData(loaded, secrets, clock, calendar, symbols),
         strategies=strategies,
@@ -123,12 +147,7 @@ def build_deps(loaded: LoadedConfig, secrets: Secrets, clock: Clock) -> CycleDep
             for e in catalog.entries
             if e.version.strategy_id in ids
         },
-        kill_switch=KillSwitch(
-            FileKillSwitchStore(
-                loaded.resolve_path(ks_cfg.state_file), loaded.resolve_path(ks_cfg.audit_file)
-            ),
-            clock,
-        ),
+        kill_switch=build_kill_switch(loaded, clock, db),
         validator=build_validator(loaded, calendar),
         notifier=_notifier(loaded, secrets),
     )

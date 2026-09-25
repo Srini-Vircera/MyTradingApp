@@ -18,6 +18,7 @@ from adaptive_quant import (
     cli_backtest,
     cli_data,
     cli_db,
+    cli_deploy,
     cli_research,
     cli_strategies,
     cli_trade,
@@ -29,11 +30,8 @@ from adaptive_quant.core.clock import Clock, SystemClock, to_market_time
 from adaptive_quant.core.errors import AQError
 from adaptive_quant.observability.logging import configure_logging
 from adaptive_quant.quant.strategies.catalog import StrategyCatalog
-from adaptive_quant.trading.safety.kill_switch import (
-    RELEASE_CONFIRMATION,
-    FileKillSwitchStore,
-    KillSwitch,
-)
+from adaptive_quant.trading.safety.kill_switch import RELEASE_CONFIRMATION, KillSwitch
+from adaptive_quant.trading.safety.kill_switch_store import build_kill_switch
 
 SECRET_GROUPS: dict[str, tuple[str, ...]] = {
     "broker": ("alpaca_api_key_id", "alpaca_api_secret_key"),
@@ -87,6 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
     cli_db.register(sub)
     cli_trade.register(sub)
     cli_api.register(sub)
+    cli_deploy.register(sub)
     return parser
 
 
@@ -106,7 +105,13 @@ def _dispatch(args: argparse.Namespace, clock: Clock) -> int:
 
     secrets = load_secrets(args.env_file)
     loaded = load_config(args.env, config_dir=args.config_dir, secrets=secrets)
-    configure_logging(loaded.settings.logging.level, fmt="console")
+    # long-running services log in the configured format (JSON in paper/production);
+    # interactive commands stay human-readable
+    service = (args.command, getattr(args, "action", None)) in {("api", "serve"), ("trade", "run")}
+    configure_logging(
+        loaded.settings.logging.level,
+        fmt=loaded.settings.logging.format if service else "console",
+    )
 
     if args.command == "config":
         return _config(args, loaded, secrets)
@@ -115,7 +120,7 @@ def _dispatch(args: argparse.Namespace, clock: Clock) -> int:
             print(f"{name:<28} {'set' if present else 'NOT SET'}")
         return EXIT_OK
     if args.command == "kill-switch":
-        return _kill_switch(args, loaded, clock)
+        return _kill_switch(args, loaded, secrets, clock)
     if args.command == "data":
         return cli_data.run(args, loaded, secrets, clock)
     if args.command == "strategies":
@@ -126,6 +131,8 @@ def _dispatch(args: argparse.Namespace, clock: Clock) -> int:
         return cli_research.run(args, loaded, clock)
     if args.command == "db":
         return cli_db.run(args, loaded, secrets, clock)
+    if args.command == "deploy":
+        return cli_deploy.run(args, loaded, secrets)
     if args.command == "trade":
         return cli_trade.run(args, loaded, secrets, clock)
     if args.command == "api":
@@ -162,14 +169,18 @@ def _config(args: argparse.Namespace, loaded: LoadedConfig, secrets: Secrets) ->
     return EXIT_OK
 
 
-def _kill_switch(args: argparse.Namespace, loaded: LoadedConfig, clock: Clock) -> int:
-    cfg = loaded.settings.trading.kill_switch
-    switch = KillSwitch(
-        FileKillSwitchStore(
-            loaded.resolve_path(cfg.state_file), loaded.resolve_path(cfg.audit_file)
-        ),
-        clock,
-    )
+def _kill_switch(
+    args: argparse.Namespace, loaded: LoadedConfig, secrets: Secrets, clock: Clock
+) -> int:
+    db = cli_db.open_database(loaded, secrets) if secrets.database_url is not None else None
+    try:
+        return _kill_switch_action(args, build_kill_switch(loaded, clock, db))
+    finally:
+        if db is not None:
+            db.dispose()
+
+
+def _kill_switch_action(args: argparse.Namespace, switch: KillSwitch) -> int:
     if args.action == "engage":
         switch.engage(actor=args.actor, reason=args.reason)
     elif args.action == "release":

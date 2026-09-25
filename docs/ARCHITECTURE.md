@@ -116,7 +116,7 @@ MyTradingApp/                      (the repo; the platform is called "adaptive-q
 ├── config/                        base / risk / strategies / development / paper / production .yaml
 ├── tests/{unit,integration,regression}/
 ├── docs/                          this documentation
-├── infrastructure/                Dockerfiles, AWS notes                             [M13]
+├── deploy/                        Dockerfiles, entrypoint, Caddyfile, Railway config [M13]
 ├── scripts/                       one-off operational scripts
 ├── docker-compose.yml, Makefile, pyproject.toml, .env.example, README.md
 ```

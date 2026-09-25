@@ -27,7 +27,7 @@ Built milestone by milestone — see [docs/ROADMAP.md](docs/ROADMAP.md).
 | Scheduler, trading cycle, shadow mode, email notifications (M10) | ✅ done |
 | Operator API: read endpoints, kill switch, token auth, OpenAPI (M11) | ✅ done |
 | Operator dashboard: all pages, mode banner, STOP button, charts (M12) | ✅ done |
-| Deployment (M13) | planned |
+| Deployment: Docker images, Railway config, shared kill switch, backups (M13) | ✅ done (paper-vs-backtest report pending paper history) |
 
 Sections below marked *(Milestone N)* describe commands that do not exist yet.
 
@@ -48,6 +48,7 @@ Sections below marked *(Milestone N)* describe commands that do not exist yet.
 | [DATABASE.md](docs/DATABASE.md) | audit-trail schema |
 | [API.md](docs/API.md) | operator API: endpoints, authentication, safety guarantees |
 | [DASHBOARD.md](docs/DASHBOARD.md) | operator dashboard: pages, token handling, tests |
+| [DEPLOYMENT_RAILWAY.md](docs/DEPLOYMENT_RAILWAY.md) | Docker images, Railway setup, variables, health checks, backups, runbook |
 | [SAFETY.md](docs/SAFETY.md) | kill switch, refusal conditions, live-trading lock |
 | [ROADMAP.md](docs/ROADMAP.md) | milestones and acceptance criteria |
 
@@ -220,6 +221,17 @@ cd apps/dashboard && npm ci && npm run dev   # http://localhost:3000, then enter
 Every page shows the PAPER/SHADOW/LIVE banner and a STOP AUTOMATED TRADING
 button (typed confirmation). The dashboard cannot change the trading mode, place
 orders or promote strategies. See [docs/DASHBOARD.md](docs/DASHBOARD.md).
+
+## 9c. Deployment (Railway / Docker)
+
+```bash
+docker compose --profile stack up -d --build   # full stack locally: http://localhost:8080
+```
+
+Railway Pro is the reference deployment: `api` (private), `worker`,
+`dashboard` (public HTTPS) and PostgreSQL. It covers research, backtesting,
+shadow mode and later Alpaca paper trading. Live trading is refused at
+container start-up. See [docs/DEPLOYMENT_RAILWAY.md](docs/DEPLOYMENT_RAILWAY.md).
 
 ## 10. Logs
 

@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { ApiError, explainCycle, getJson, killSwitch } from "@/lib/api";
+import { describe, expect, it, vi } from "vitest";
+import { ApiError, apiOrigin, configuredApiOrigin, explainCycle, getJson, killSwitch } from "@/lib/api";
 import { mockFetch, TOKEN } from "./helpers";
 
 describe("api client", () => {
@@ -57,5 +57,23 @@ describe("api client", () => {
     await explainCycle(TOKEN, "../kill-switch/engage");
     expect(new URL(calls[0]!.url).pathname).toBe("/api/v1/cycles/..%2Fkill-switch%2Fengage/explain");
     expect(calls[0]!.method).toBe("GET");
+  });
+});
+
+describe("API origin", () => {
+  it("uses the page's own origin when built for the same-origin reverse proxy", async () => {
+    vi.stubEnv("NEXT_PUBLIC_AQ_API_ORIGIN", "same-origin");
+    expect(configuredApiOrigin()).toBeNull();
+    expect(apiOrigin()).toBe(window.location.origin);
+    const calls = mockFetch(() => ({ json: { banner: {}, items: [], count: 0 } }));
+    await getJson(TOKEN, "/api/v1/cycles", { limit: 1 });
+    expect(calls[0]!.url).toBe(`${window.location.origin}/api/v1/cycles?limit=1`);
+    vi.unstubAllEnvs();
+  });
+
+  it("defaults to the local API for development", () => {
+    vi.stubEnv("NEXT_PUBLIC_AQ_API_ORIGIN", "");
+    expect(apiOrigin()).toBe("http://localhost:8000");
+    vi.unstubAllEnvs();
   });
 });

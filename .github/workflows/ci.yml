@@ -35,6 +35,12 @@ jobs:
           .venv/bin/ruff format --check src tests
       - name: Type check
         run: .venv/bin/mypy
+      - name: Caddy (deployment smoke test)
+        run: |
+          curl -sSfL -o /tmp/caddy.tgz https://github.com/caddyserver/caddy/releases/download/v2.10.2/caddy_2.10.2_linux_amd64.tar.gz
+          echo "5c218bc34c9197369263da7e9317a83acdbd80ef45d94dca5eff76e727c67cdd  /tmp/caddy.tgz" | sha256sum -c -
+          tar -xzf /tmp/caddy.tgz -C /tmp caddy
+          echo "AQ_TEST_CADDY=/tmp/caddy" >> "$GITHUB_ENV"
       - name: Tests
         run: .venv/bin/pytest --cov --cov-report=term-missing
       - name: Validate shipped configuration
@@ -66,3 +72,21 @@ jobs:
         run: |
           npx playwright install --with-deps chromium
           npm run test:e2e
+
+  images:
+    # The deployment images build from the repository root exactly as Railway builds them.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build app image (api + worker)
+        run: docker build -f deploy/docker/app.Dockerfile -t aq-app:ci .
+      - name: Build dashboard image
+        run: docker build -f deploy/docker/dashboard.Dockerfile -t aq-dashboard:ci .
+      - name: Start-up checks refuse unsafe configurations
+        run: |
+          set +e
+          docker run --rm -e AQ_ROLE=api -e DATABASE_URL=postgresql://x@db/x \
+            -e AQ_API_TOKEN=$(openssl rand -hex 32) -e AQ_LIVE_TRADING_CONFIRM=yes aq-app:ci
+          test $? -eq 2 || { echo "live confirmation was not refused"; exit 1; }
+          docker run --rm aq-app:ci
+          test $? -eq 64 || { echo "missing role was not refused"; exit 1; }
