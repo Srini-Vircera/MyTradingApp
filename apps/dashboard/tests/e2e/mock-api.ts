@@ -96,6 +96,71 @@ export function fixtures(banner = BANNER): Record<string, unknown> {
     "/api/v1/cycles": page([cycle]),
     "/api/v1/system/health": { banner, version: "0.11.0", database: { configured: true, reachable: true, revision: "0002", head: "0002", at_head: true }, kill_switch: ks, latest_cycle: cycle, recent_errors: [], recent_notifications: [] },
     "/api/v1/cycles/cyc-2026-09-24/explain": { banner, cycle, signals: [], risk: risk[0] },
+    ...controlFixtures(),
+  };
+}
+
+export const JOB_ID = "b".repeat(32);
+const worker = { worker_id: "w-1", online: true, last_seen_at: "2026-09-25T14:00:00+00:00", status: { master_gate: false, credentials_configured: { ALPACA_API_KEY_ID: true, ALPACA_API_SECRET_KEY: true } } };
+export const JOB = {
+  id: JOB_ID, job_type: "backtest.run", title: "Backtest", params: { strategies: ["baseline_buy_hold"], source: "file" },
+  status: "succeeded", requested_by: "ann", requested_at: "2026-09-25T14:00:00+00:00", started_at: "2026-09-25T14:00:01+00:00",
+  finished_at: "2026-09-25T14:00:09+00:00", heartbeat_at: null, progress: 1, message: "finished", result: null, error: null,
+  config_version: "development-abc", retry_of: null, cancel_requested: false, retryable: true,
+};
+const curve = ["2016-09-26", "2020-01-02", "2023-01-03", "2026-09-25"].map((d, i) => ({ date: d, equity: [100000, 140000, 120000, 210000][i], drawdown: [0, 0, -0.14, 0][i], synthetic: false }));
+const SUMMARY = {
+  disclaimer: "HYPOTHETICAL backtest results.",
+  strategies: ["baseline_buy_hold"], source: "file", period: { start: "2016-09-26", end: "2026-09-25" }, config_version: "development-abc",
+  initial_capital: 100000, ending_equity: 210000,
+  headline: { total_return: 1.1, cagr: 0.077, volatility: 0.2, sharpe: 0.5, sortino: 0.7, max_drawdown: -0.3, max_drawdown_duration_sessions: 400, calmar: 0.26, annual_turnover: 0.1, trades: 1 },
+  fills: 1, round_trips: 0, metrics: { all: { Strategy: { total_return: 1.1, cagr: 0.077 }, QQQ: { total_return: 1.15, cagr: 0.08 } } },
+  has_synthetic: false, unpriced_instruments: ["TQQQ", "SQQQ"], notes: [], curve,
+};
+
+function controlFixtures(): Record<string, unknown> {
+  return {
+    "/api/v1/jobs": { jobs: [JOB], worker },
+    [`/api/v1/jobs/${JOB_ID}`]: { ...JOB, logs: [{ at: "2026-09-25T14:00:02+00:00", level: "info", message: "loading file price history" }] },
+    "/api/v1/data/datasets": {
+      datasets: [{ source: "file", symbol: "QQQ", frequency: "1d", adjustment: "all", rows: 2514, first: "2016-09-26", last: "2026-09-25", validation_passed: true, is_synthetic: false, fresh: true, freshness: "newest bar 2026-09-25", issues: [], warnings: ["no corporate-actions data for this symbol: total return may be understated"], updated_at: "2026-09-25T14:00:00+00:00" }],
+      updated_at: "2026-09-25T14:00:00+00:00", primary_provider: "file", synthetic_warning: "SYNTHETIC data warning",
+    },
+    "/api/v1/data/options": { providers: [{ name: "file", label: "Uploaded / imported files", configured: true }, { name: "polygon", label: "Polygon", configured: false }], default_provider: "file", symbols: ["QQQ", "TQQQ", "SQQQ"] },
+    "/api/v1/data/uploads": { uploads: [] },
+    "/api/v1/backtests/options": {
+      strategies: [{ strategy_id: "baseline_buy_hold", label: "buy and hold", long_only_1x: true }],
+      sources: ["file"],
+      defaults: { source: "file", initial_capital: 100000, execution: "near_close", execution_delay_bars: 0, use_synthetic_history: false, costs: { commission_per_share: 0, commission_per_order: 0, commission_minimum: 0, slippage_bps: 1, impact_coefficient_bps: 5, max_participation: 0.01 } },
+    },
+    "/api/v1/backtests/runs": { runs: [{ job_id: JOB_ID, strategies: ["baseline_buy_hold"], summary: { headline: SUMMARY.headline } }], jobs: [JOB] },
+    [`/api/v1/backtests/runs/${JOB_ID}`]: { run: { job_id: JOB_ID, summary: SUMMARY }, job: JOB },
+    "/api/v1/research/runs": { jobs: [], candidates: ["mom_time_series"], eligible: ["baseline_buy_hold", "mom_time_series"], defaults: { simulations: 1000, scheme: "rolling", use_synthetic_history: false }, gates: {}, promotion: "never automatic" },
+    "/api/v1/strategies/manager": {
+      strategies: [{ strategy_id: "baseline_buy_hold", family: "benchmark", implementation: "baseline_buy_hold", version_id: "v1", lifecycle: "research", enabled: true, eligible_for_paper_or_shadow: false, params: {}, param_schema: [], param_grid: {}, warmup_bars: 0, params_editable: true, eligible_modes: ["backtest"], evidence: {}, allowed_transitions: [{ to: "validated", promotion: true }, { to: "disabled", promotion: false }], reviewed: { lifecycle: "research" } }],
+      lifecycle_events: [], promotion_confirm: "APPROVE PROMOTION", runtime_revision: 0,
+    },
+    "/api/v1/settings": {
+      config_version: "development-abc", reviewed_config_version: "development-abc",
+      runtime: { revision: 0, overlay: {} },
+      settings: [
+        { path: "backtest.initial_capital", category: "Backtesting", class: "runtime", label: "Starting capital (USD)", value: 100000, reviewed_value: 100000, overridden: false, tighter: null, choices: [], why: "" },
+        { path: "risk.max_daily_loss", category: "Risk", class: "runtime_confirm", label: "Daily loss halt", value: 0.06, reviewed_value: 0.06, overridden: false, tighter: "lower", choices: [], why: "" },
+        { path: "trading.live_trading.enabled", category: "Trading", class: "immutable", label: "enabled", value: false, reviewed_value: false, overridden: false, tighter: null, choices: [], why: "reviewed change only" },
+      ],
+      secrets: [{ name: "ALPACA_API_KEY_ID", category: "Broker", label: "Alpaca paper key id", configured: true }],
+      classes: { runtime: "safe to change here" }, history: [], risk_confirm: "TIGHTEN RISK LIMITS", worker_note: "Applies to the next job.",
+    },
+    "/api/v1/trading/control": {
+      environment: "production", mode: "shadow", uses_real_money: false, real_money_possible: false, real_money_note: "No live broker adapter exists.",
+      worker: { online: true, last_seen: "2026-09-25T14:00:00+00:00", worker_id: "w-1" },
+      scheduler: { master_gate: false, desired: "stopped", state: "stopped", detail: "master gate off", restart_needed: false },
+      kill_switch: { engaged: true }, broker: { provider: "alpaca", identity: "Alpaca PAPER (simulated funds)", endpoint_host: "paper-api.alpaca.markets", paper_endpoint: true, credentials_configured: true, verification: null },
+      eligible_strategies: [], data_freshness: [], reconciliation: null, latest_preflight: null,
+      confirmations: { start_shadow: "START SHADOW TRADING", start_paper: "START PAPER TRADING", paper_mode: "ENABLE PAPER TRADING", shadow_mode: "USE SHADOW MODE" },
+      paper_mode_ready: "run 'Verify broker connection' first",
+    },
+    "/api/v1/trading/live-readiness": { live_possible: false, summary: "Live trading is locked.", items: [{ requirement: "A live broker adapter", satisfied: false, status: "none", how: "separate review" }] },
   };
 }
 
@@ -139,6 +204,7 @@ export async function mockApi(
         ks = { engaged: true, reason: body.reason, actor: `operator:${body.actor}`, changed_at: "2026-09-25T14:00:00+00:00", fail_safe: false };
         return json(200, ks);
       }
+      if (url.pathname === "/api/v1/jobs/backtest") return json(200, { ok: true, message: "queued", job: { ...JOB, status: "queued" }, detail: {} });
       return json(400, { detail: "refused" });
     }
     if (url.pathname === "/api/v1/kill-switch") return json(200, ks);

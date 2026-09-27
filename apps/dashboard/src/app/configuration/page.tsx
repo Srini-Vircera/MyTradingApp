@@ -11,8 +11,9 @@ export default function ConfigurationPage() {
   return (
     <>
       <PageHeader title="Configuration">
-        The resolved configuration, with secrets redacted. Read-only: configuration is changed by editing
-        the YAML files and restarting, never from the dashboard.
+        The reviewed configuration files (YAML), with secrets redacted. Operator changes made on the
+        Settings, Strategies and Trading Control pages are layered on top and listed there; the
+        mode banner shows the effective mode.
       </PageHeader>
       <LoadState loading={c.loading && !d} error={c.error} />
       <Section title="Trading mode lock">

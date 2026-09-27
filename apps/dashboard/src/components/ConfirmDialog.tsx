@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { loadOperator, saveOperator } from "@/lib/operator";
 
 export interface ConfirmValues {
   actor: string;
@@ -11,7 +12,11 @@ export interface ConfirmValues {
 interface Props {
   title: string;
   description: string;
+  /** exact phrase to type; empty = no typed confirmation (routine, audited actions) */
   phrase: string;
+  /** minimum reason length (promotions need a written justification); 0 = no reason asked */
+  minReason?: number;
+  children?: ReactNode;
   submitLabel: string;
   tone: "critical" | "primary";
   busy?: boolean;
@@ -26,7 +31,7 @@ interface Props {
  * checks the phrase again.
  */
 export function ConfirmDialog(p: Props) {
-  const [actor, setActor] = useState("");
+  const [actor, setActor] = useState(() => loadOperator());
   const [reason, setReason] = useState("");
   const [confirm, setConfirm] = useState("");
   const id = useId();
@@ -43,12 +48,18 @@ export function ConfirmDialog(p: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const minReason = p.minReason ?? 5;
   const ready =
-    actor.trim().length >= 2 && reason.trim().length >= 5 && confirm === p.phrase && !p.busy;
+    actor.trim().length >= 2 &&
+    reason.trim().length >= minReason &&
+    confirm === p.phrase &&
+    !p.busy;
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (ready) p.onSubmit({ actor: actor.trim(), reason: reason.trim(), confirm });
+    if (!ready) return;
+    saveOperator(actor.trim());
+    p.onSubmit({ actor: actor.trim(), reason: reason.trim(), confirm });
   }
 
   return (
@@ -62,6 +73,7 @@ export function ConfirmDialog(p: Props) {
       >
         <h2 id={`${id}-title`}>{p.title}</h2>
         <p>{p.description}</p>
+        {p.children}
         <label htmlFor={`${id}-actor`}>Your name (operator)</label>
         <input
           ref={first}
@@ -71,7 +83,11 @@ export function ConfirmDialog(p: Props) {
           autoComplete="off"
           onChange={(e) => setActor(e.target.value)}
         />
-        <label htmlFor={`${id}-reason`}>Reason</label>
+        {minReason > 0 && (
+          <>
+        <label htmlFor={`${id}-reason`}>
+          Reason{minReason > 5 ? ` (at least ${minReason} characters)` : ""}
+        </label>
         <textarea
           id={`${id}-reason`}
           value={reason}
@@ -79,16 +95,22 @@ export function ConfirmDialog(p: Props) {
           rows={3}
           onChange={(e) => setReason(e.target.value)}
         />
-        <label htmlFor={`${id}-confirm`}>
-          Type <code>{p.phrase}</code> to confirm
-        </label>
-        <input
-          id={`${id}-confirm`}
-          value={confirm}
-          autoComplete="off"
-          spellCheck={false}
-          onChange={(e) => setConfirm(e.target.value)}
-        />
+          </>
+        )}
+        {p.phrase && (
+          <>
+            <label htmlFor={`${id}-confirm`}>
+              Type <code>{p.phrase}</code> to confirm
+            </label>
+            <input
+              id={`${id}-confirm`}
+              value={confirm}
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(e) => setConfirm(e.target.value)}
+            />
+          </>
+        )}
         {p.error && (
           <p role="alert" className="alert critical">
             {p.error}

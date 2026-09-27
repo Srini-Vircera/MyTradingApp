@@ -2,7 +2,7 @@
   "name": "adaptive-quant-dashboard",
   "version": "0.12.0",
   "private": true,
-  "description": "Operator dashboard (read-only views + kill switch) for the Adaptive Quant platform.",
+  "description": "Operator dashboard and control plane (shadow/paper only) for the Adaptive Quant platform.",
   "scripts": {
     "dev": "next dev --port 3000",
     "build": "next build",
