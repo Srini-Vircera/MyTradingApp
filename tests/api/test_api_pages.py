@@ -59,7 +59,7 @@ def test_all_pages_show_the_cycle(api: TestClient) -> None:
     health = get("/system/health").json()
     assert health["database"]["reachable"] and health["database"]["at_head"]
     strategies = get("/strategies").json()["strategies"]
-    assert len(strategies) == 22 and all(s["lifecycle"] == "research" for s in strategies)
+    assert len(strategies) == 23 and all(s["lifecycle"] == "research" for s in strategies)
     assert get("/backtests").status_code == 200
     assert api.get("/api/v1/orders?limit=100000", headers=AUTH).status_code == 422  # bounded pages
 

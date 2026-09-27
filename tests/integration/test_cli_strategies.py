@@ -48,7 +48,7 @@ def download(project: Path, *symbols: str) -> None:
 def test_list_and_validate(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert aq(project, "strategies", "validate") == EXIT_OK
     out = capsys.readouterr().out
-    assert "22 strategies valid" in out
+    assert "23 strategies valid" in out
     assert "eligible in live    : 0" in out
     assert aq(project, "strategies", "list") == EXIT_OK
     assert "ltt_sma_distance@1.0.0#" in capsys.readouterr().out
@@ -63,7 +63,7 @@ def test_signals_from_stored_data(project: Path, capsys: pytest.CaptureFixture[s
     assert "optional data not available: NDX" in out
     assert "NDX unavailable, not used" in out
     assert "NO SIGNAL" not in out
-    assert out.count("\n") >= 24  # header lines + 22 strategies
+    assert out.count("\n") >= 24  # header lines + 23 strategies
 
 
 def test_signals_before_warmup_refuse(project: Path, capsys: pytest.CaptureFixture[str]) -> None:
