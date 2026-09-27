@@ -188,3 +188,12 @@ class AuditReads:
         with self.db.session() as s:
             q = select(m.KillSwitchEvent).order_by(desc(m.KillSwitchEvent.at)).limit(limit)
             return [_row(x) for x in s.scalars(q)]
+
+    def latest_preflight(self) -> Row | None:
+        with self.db.session() as s:
+            p = s.scalars(
+                select(m.PreflightReportRow)
+                .order_by(desc(m.PreflightReportRow.checked_at))
+                .limit(1)
+            ).first()
+            return None if p is None else _row(p)

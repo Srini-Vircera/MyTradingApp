@@ -8,23 +8,13 @@ from datetime import date
 from adaptive_quant.config.loader import LoadedConfig
 from adaptive_quant.config.secrets import Secrets
 from adaptive_quant.core.clock import Clock, to_market_time
-from adaptive_quant.core.enums import AssetClass
-from adaptive_quant.core.errors import AQError, MissingDataError
-from adaptive_quant.quant.data.bars import Adjustment, Frequency, SeriesKey
+from adaptive_quant.quant.data.bars import Frequency
 from adaptive_quant.quant.data.calendar import TradingCalendar, nyse_calendar
-from adaptive_quant.quant.data.factory import (
-    PROVIDERS,
-    build_provider,
-    build_store,
-    build_validator,
-)
-from adaptive_quant.quant.data.freshness import check_daily_freshness, check_intraday_freshness
-from adaptive_quant.quant.data.history import build_synthetic
-from adaptive_quant.quant.data.pipeline import DataPipeline
+from adaptive_quant.quant.data.factory import PROVIDERS, build_store
+from adaptive_quant.services import data as data_service
 
 EXIT_OK = 0
 EXIT_REFUSED = 2
-_BASIS_ORDER = (Adjustment.RAW, Adjustment.ALL, Adjustment.SPLIT)
 
 
 def register(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -70,11 +60,7 @@ def run(args: argparse.Namespace, loaded: LoadedConfig, secrets: Secrets, clock:
 
 def default_symbols(loaded: LoadedConfig, provider: str) -> list[str]:
     """Every configured instrument; index data only from providers that carry it."""
-    return [
-        i.symbol
-        for i in loaded.settings.universe.instruments
-        if i.asset_class is not AssetClass.INDEX or provider == "polygon"
-    ]
+    return data_service.default_symbols(loaded, provider)
 
 
 # ------------------------------------------------------------------ commands
@@ -85,95 +71,48 @@ def _download(
     clock: Clock,
     calendar: TradingCalendar,
 ) -> int:
-    settings = loaded.settings
-    provider_name = args.provider or settings.data.primary_provider
-    frequency = Frequency(args.frequency)
-    last = calendar.last_completed_session(clock.now())
-    end = args.end or (last.date if last else clock.now().date())
-    start = args.start or settings.data.history_start
-    symbols = args.symbols or default_symbols(loaded, provider_name)
-
-    provider = build_provider(provider_name, loaded, secrets, calendar)
-    pipeline = DataPipeline(
-        provider, build_store(loaded, clock), build_validator(loaded, calendar), clock
+    result = data_service.download(
+        loaded,
+        secrets,
+        clock,
+        calendar,
+        provider=args.provider,
+        symbols=args.symbols,
+        frequency=Frequency(args.frequency),
+        start=args.start,
+        end=args.end,
     )
-    failures = 0
-    try:
-        for symbol in symbols:
-            try:
-                result = pipeline.update(symbol, frequency, start, end)
-            except AQError as exc:
-                failures += 1
-                print(f"FAIL {symbol}: {exc}")
-                continue
-            failures += 0 if result.ok else 1
-            print(("OK   " if result.ok else "FAIL ") + result.summary())
-    finally:
-        provider.close()
+    for o in result.outcomes:
+        print(
+            o.summary
+            if o.summary.startswith("FAIL ")
+            else ("OK   " if o.ok else "FAIL ") + o.summary
+        )
+    p = result.params
     print(
-        f"\n{len(symbols) - failures}/{len(symbols)} symbol(s) stored and valid "
-        f"(provider={provider_name}, {start}..{end}, {frequency})"
+        f"\n{len(result.outcomes) - result.failures}/{len(result.outcomes)} symbol(s) stored and "
+        f"valid (provider={p['provider']}, {p['start']}..{p['end']}, {p['frequency']})"
     )
-    return EXIT_OK if failures == 0 else EXIT_REFUSED
+    return EXIT_OK if result.failures == 0 else EXIT_REFUSED
 
 
 def _validate(
     args: argparse.Namespace, loaded: LoadedConfig, clock: Clock, calendar: TradingCalendar
 ) -> int:
-    settings = loaded.settings
-    source = args.source or settings.data.primary_provider
-    frequency = Frequency(args.frequency)
-    store = build_store(loaded, clock)
-    validator = build_validator(loaded, calendar)
-    symbols = args.symbols or default_symbols(loaded, source)
-    now = clock.now()
-    failures = 0
-    for symbol in symbols:
-        # validate the basis series as stored: raw when available, else what the source holds
-        candidates = [SeriesKey(source, symbol, frequency, adj) for adj in _BASIS_ORDER]
-        found = [(k, store.latest(k, require_valid=False)) for k in candidates]
-        key, info = next(((k, i) for k, i in found if i is not None), (candidates[0], None))
-        if info is None:
-            failures += 1
-            print(f"MISSING {key}")
-            continue
-        try:
-            bars = store.read_snapshot(info)
-        except AQError as exc:
-            failures += 1
-            print(f"FAIL    {key}: {exc}")
-            continue
-        actions = store.read_corporate_actions(source, symbol) or []
-        report = validator.validate(
-            bars,
-            frequency=frequency,
-            subject=str(key),
-            corporate_action_dates={a.ex_date for a in actions},
-            as_of=now,
-        )
-        if frequency is Frequency.DAILY:
-            fresh = check_daily_freshness(
-                bars,
-                subject=symbol,
-                as_of=now,
-                calendar=calendar,
-                max_age_sessions=settings.data.staleness.max_daily_bar_age_sessions,
-            )
-        else:
-            fresh = check_intraday_freshness(
-                bars,
-                subject=symbol,
-                as_of=now,
-                calendar=calendar,
-                max_age_seconds=settings.data.staleness.max_intraday_bar_age_seconds,
-            )
-        stale_fail = args.require_fresh and not fresh.fresh
-        if not report.ok or stale_fail:
-            failures += 1
-        status = "OK     " if report.ok else "INVALID"
-        print(f"{status} {report.summary()}")
-        print(f"        freshness: {'fresh' if fresh.fresh else 'STALE'} - {fresh.detail}")
-    return EXIT_OK if failures == 0 else EXIT_REFUSED
+    result = data_service.validate(
+        loaded,
+        clock,
+        calendar,
+        source=args.source,
+        symbols=args.symbols,
+        frequency=Frequency(args.frequency),
+        require_fresh=args.require_fresh,
+    )
+    for o in result.outcomes:
+        print(o.summary)
+        if o.fresh is not None:
+            print(f"        freshness: {'fresh' if o.fresh else 'STALE'} - {o.freshness}")
+    return EXIT_OK if result.failures == 0 else EXIT_REFUSED
 
 
 def _list(loaded: LoadedConfig, clock: Clock) -> int:
@@ -198,31 +137,13 @@ def _list(loaded: LoadedConfig, clock: Clock) -> int:
 
 
 def _synthesize(args: argparse.Namespace, loaded: LoadedConfig, clock: Clock) -> int:
-    settings = loaded.settings
-    source = args.source or settings.data.primary_provider
-    store = build_store(loaded, clock)
-    symbols = args.symbols or sorted(settings.data.synthetic.products)
-    failures = 0
-    for symbol in symbols:
-        try:
-            build = build_synthetic(
-                store, settings, symbol, source=source, resolve_path=loaded.resolve_path
-            )
-        except MissingDataError as exc:
-            failures += 1
-            print(f"FAIL {symbol}: {exc}")
-            continue
-        snap = build.snapshot
-        span = (
-            f"{to_market_time(snap.first):%Y-%m-%d}..{to_market_time(snap.last):%Y-%m-%d}"
-            if snap.first and snap.last
-            else "-"
-        )
-        print(f"{'OK  ' if build.ok else 'FAIL'} {symbol} SYNTHETIC {snap.rows} rows {span}")
-        for name, value in build.assumptions.items():
-            print(f"     {name}: {value}")
-        failures += 0 if build.ok else 1
-    return EXIT_OK if failures == 0 else EXIT_REFUSED
+    result = data_service.synthesize(loaded, clock, source=args.source, symbols=args.symbols)
+    for o in result.outcomes:
+        span = f" {o.first}..{o.last}" if o.first and o.last else ""
+        print(o.summary + span)
+        for note in o.notes:
+            print(f"     {note}")
+    return EXIT_OK if result.failures == 0 else EXIT_REFUSED
 
 
 def _freq_arg(p: argparse.ArgumentParser) -> None:

@@ -3,10 +3,13 @@
 * Every endpoint except the ``GET /api/v1/health/live`` and ``/health/ready``
   probes requires the operator bearer token (``AQ_API_TOKEN``; constant-time
   comparison; failures logged without the supplied value).
-* Read endpoints only. The **only** state-changing endpoints are the kill
-  switch ``engage`` / ``release``, each requiring a typed confirmation phrase and
-  a named operator. No endpoint can change the trading mode, edit
-  configuration, place/cancel orders or promote strategies (enforced by tests).
+* State-changing endpoints are an explicit allowlist (``MUTATING_ROUTES``): the
+  kill switch plus the control-plane mutations in ``api/control.py`` (queue
+  worker jobs, CSV uploads, strategy parameters/enabled/lifecycle with governance,
+  runtime settings, scheduler start/stop, shadow<->paper mode). Every mutation is
+  authenticated, strictly validated, rate limited and audited. No endpoint can
+  enable live trading, place/cancel orders, grant LIVE_APPROVED or edit secrets
+  or the scheduler master gate (enforced by tests).
 * Database problems return 503 with a readable message, never internals.
 * Interactive docs are disabled (no third-party assets); the OpenAPI schema is
   at ``/api/v1/openapi.json`` and committed as ``apps/api/openapi.json``.
@@ -27,20 +30,24 @@ from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, ConfigDict, Field
 
 from adaptive_quant import __version__
-from adaptive_quant.api.security import bearer, check_token, harden
+from adaptive_quant.api.control import CONTROL_MUTATIONS, control_router
+from adaptive_quant.api.security import RateLimiter, bearer, check_token, client_of, harden
 from adaptive_quant.api.services import ApiServices
 from adaptive_quant.config.schema import redact
 from adaptive_quant.core.clock import MARKET_TZ
 from adaptive_quant.core.errors import (
+    AQError,
     DatabaseUnavailableError,
     PersistenceError,
     SafetyViolation,
 )
 from adaptive_quant.persistence import migrate
+from adaptive_quant.persistence.control import ControlRepository
 from adaptive_quant.persistence.explain import explain_decision
 from adaptive_quant.persistence.reads import AuditReads
 from adaptive_quant.persistence.repositories import MonitoringRepository
 from adaptive_quant.quant.strategies.catalog import ELIGIBLE_LIFECYCLES, StrategyCatalog
+from adaptive_quant.services.runtime import effective_config
 from adaptive_quant.trading.safety.kill_switch import RELEASE_CONFIRMATION
 from adaptive_quant.trading.scheduler.schedule import plan_at
 
@@ -51,10 +58,12 @@ HYPOTHETICAL = (
     "and are not a prediction of future returns."
 )
 
-#: The complete set of state-changing routes. Tests assert nothing else exists.
-MUTATING_ROUTES = frozenset(
+KILL_SWITCH_MUTATIONS = frozenset(
     {("POST", f"{API_PREFIX}/kill-switch/engage"), ("POST", f"{API_PREFIX}/kill-switch/release")}
 )
+#: The complete, explicit allowlist of state-changing routes (the kill switch plus the
+#: control-plane mutations of PR #4). Tests assert that nothing else exists.
+MUTATING_ROUTES = KILL_SWITCH_MUTATIONS | frozenset(CONTROL_MUTATIONS)
 
 Rows = list[dict[str, Any]]
 
@@ -155,8 +164,11 @@ def create_app(services: ApiServices) -> FastAPI:
     app = FastAPI(
         title="Adaptive Quant operator API",
         version=__version__,
-        description="Read-only views of the paper/shadow trading platform plus the kill switch. "
-        "It cannot change the trading mode, place orders or promote strategies. " + HYPOTHETICAL,
+        description="Operator views and an allowlisted control plane for the paper/shadow "
+        "trading platform: the kill switch, queued worker jobs (data, backtests, research, "
+        "read-only broker verification), CSV uploads, strategy governance up to shadow, "
+        "runtime settings and the shadow/paper scheduler switch. It cannot place orders, "
+        "enable live trading, grant LIVE_APPROVED or change deployment secrets. " + HYPOTHETICAL,
         openapi_url=f"{API_PREFIX}/openapi.json",
         docs_url=None,
         redoc_url=None,
@@ -206,8 +218,11 @@ def create_app(services: ApiServices) -> FastAPI:
             {"status": "ready" if ok else "not ready"}, status_code=200 if ok else 503
         )
 
+    limiter = RateLimiter()
+    app.state.limiter = limiter
     app.include_router(_read_router(services))
-    app.include_router(_control_router(services))
+    app.include_router(_kill_switch_router(services, limiter))
+    app.include_router(control_router(services, _auth(services), limiter))
     return app
 
 
@@ -232,12 +247,26 @@ def _read_router(sv: ApiServices) -> APIRouter:
     env = s.app.environment.value
 
     def banner() -> Banner:
+        """The *effective* mode (YAML + runtime overlay); unknown if it cannot be read."""
+        mode, version = s.trading.mode, sv.loaded.config_version
+        if sv.db is not None:
+            try:
+                eff, _row = effective_config(sv.loaded, sv.db)
+                mode, version = eff.settings.trading.mode, eff.config_version
+            except AQError:
+                return Banner(
+                    environment=env,
+                    mode="unknown",
+                    uses_real_money=False,
+                    live_trading_enabled=s.trading.live_trading.enabled,
+                    config_version=version,
+                )
         return Banner(
             environment=env,
-            mode=s.trading.mode.value,
-            uses_real_money=s.trading.mode.uses_real_money,
+            mode=mode.value,
+            uses_real_money=mode.uses_real_money,
             live_trading_enabled=s.trading.live_trading.enabled,
-            config_version=sv.loaded.config_version,
+            config_version=version,
         )
 
     def reads() -> AuditReads:
@@ -426,7 +455,7 @@ def _read_router(sv: ApiServices) -> APIRouter:
 
     @r.get("/configuration", response_model=Configuration, tags=["pages"])
     def configuration() -> Configuration:
-        """The resolved configuration, redacted. Read-only: there is no way to change it here."""
+        """The reviewed YAML configuration, redacted (runtime changes: ``/settings``)."""
         lt = s.trading.live_trading
         return Configuration(
             banner=banner(),
@@ -437,7 +466,8 @@ def _read_router(sv: ApiServices) -> APIRouter:
                 "uses_real_money": s.trading.mode.uses_real_money,
                 "live_trading_enabled_in_config": lt.enabled,
                 "changeable_via_api": False,
-                "how_to_change": "edit the YAML configuration and restart; see docs/SAFETY.md",
+                "how_to_change": "live: never from the API (reviewed YAML change plus a deployment "
+                "secret; see docs/SAFETY.md). Shadow <-> paper: the Trading Control page.",
             },
             settings=redact(s.model_dump(mode="json")),
         )
@@ -483,10 +513,25 @@ def _reports(root: Path, filename: str, limit: int) -> Rows:
 
 
 # ================================================================== kill switch (only mutations)
-def _control_router(sv: ApiServices) -> APIRouter:
+def _kill_switch_router(sv: ApiServices, limiter: RateLimiter) -> APIRouter:
     r = APIRouter(
         prefix=f"{API_PREFIX}/kill-switch", dependencies=[_auth(sv)], tags=["kill switch"]
     )
+
+    def audit(request: Request, body: KillSwitchRequest, action: str, outcome: str) -> None:
+        if sv.db is None:
+            return
+        # best effort: the kill switch itself (and its own audit trail) is authoritative
+        with contextlib.suppress(DatabaseUnavailableError, PersistenceError):
+            ControlRepository(sv.db).record_event(
+                actor=body.actor,
+                action=action,
+                target="kill-switch",
+                outcome=outcome,
+                detail={"reason": body.reason},
+                client=client_of(request),
+                now=sv.clock.now(),
+            )
 
     def record(engaged: bool, body: KillSwitchRequest) -> None:
         if sv.db is None or sv.loaded.settings.trading.kill_switch.store == "database":
@@ -498,27 +543,34 @@ def _control_router(sv: ApiServices) -> APIRouter:
             )
 
     @r.post("/engage", response_model=KillSwitchView)
-    def engage(body: KillSwitchRequest) -> KillSwitchView:
-        """Stop new risk-increasing orders. Requires ``confirm`` = "STOP AUTOMATED TRADING"."""
+    def engage(body: KillSwitchRequest, request: Request) -> KillSwitchView:
+        """Stop new risk-increasing orders. Requires ``confirm`` = "STOP AUTOMATED TRADING".
+
+        Never rate limited: stopping must always be possible."""
         if body.confirm != ENGAGE_CONFIRMATION:
+            audit(request, body, "kill_switch.engage", "refused")
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
                 f"type the confirmation phrase exactly: {ENGAGE_CONFIRMATION!r}",
             )
         sv.kill_switch.engage(f"operator:{body.actor}", body.reason)
         record(True, body)
+        audit(request, body, "kill_switch.engage", "accepted")
         return KillSwitchView(**sv.kill_switch.status().model_dump())
 
     @r.post("/release", response_model=KillSwitchView)
-    def release(body: KillSwitchRequest) -> KillSwitchView:
+    def release(body: KillSwitchRequest, request: Request) -> KillSwitchView:
         """Re-enable automated trading.
 
         Requires ``confirm`` = "RE-ENABLE TRADING" and a named operator."""
+        limiter.check("control", client_of(request))
         try:
             sv.kill_switch.release(f"operator:{body.actor}", body.reason, body.confirm)
         except SafetyViolation as exc:
+            audit(request, body, "kill_switch.release", "refused")
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
         record(False, body)
+        audit(request, body, "kill_switch.release", "accepted")
         return KillSwitchView(**sv.kill_switch.status().model_dump())
 
     return r

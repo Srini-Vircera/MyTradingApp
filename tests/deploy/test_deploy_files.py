@@ -75,7 +75,9 @@ def test_images_run_unprivileged_with_pinned_inputs() -> None:
 
 def test_caddy_proxies_only_the_api_and_sets_security_headers() -> None:
     caddy = (DEPLOY / "docker" / "Caddyfile").read_text()
-    assert re.findall(r"handle (/\S+)", caddy) == ["/api/v1/*"]
+    # uploads get a larger body limit on their exact path only; the rest stays at 64KB
+    assert re.findall(r"handle (/\S+)", caddy) == ["/api/v1/data/uploads", "/api/v1/*"]
+    assert re.findall(r"max_size (\S+)", caddy) == ["26MB", "64KB"]
     assert "reverse_proxy {$API_UPSTREAM}" in caddy
     for header in (
         "Strict-Transport-Security",
@@ -132,15 +134,19 @@ def test_entrypoint_api_role() -> None:
     )
 
 
-def test_entrypoint_worker_is_idle_unless_the_scheduler_is_enabled() -> None:
+def test_entrypoint_worker_runs_jobs_and_reports_the_master_gate() -> None:
     idle = entry(AQ_ROLE="worker")
-    assert idle.stdout.splitlines()[0] == "aq deploy check --role worker"
-    assert idle.stdout.splitlines()[-1] == "exec sleep infinity"
+    lines = idle.stdout.splitlines()
+    assert lines[0] == "aq deploy check --role worker"
+    assert "master gate OFF" in lines[1]
+    assert lines[-1] == "exec aq worker run"  # the scheduler itself stays gated inside
     for on in ("true", "TRUE", "1", "yes"):
         r = entry(AQ_ROLE="worker", AQ_SCHEDULER_ENABLED=on)
-        assert r.stdout.splitlines()[-1] == "exec aq trade run"
+        assert "master gate ON" in r.stdout and r.stdout.splitlines()[-1] == "exec aq worker run"
     off = entry(AQ_ROLE="worker", AQ_SCHEDULER_ENABLED="no")
-    assert off.stdout.splitlines()[-1] == "exec sleep infinity"
+    assert "master gate OFF" in off.stdout
+    text = ENTRYPOINT.read_text()
+    assert "aq trade run" not in text and "sleep infinity" not in text
 
 
 def test_entrypoint_other_modes() -> None:

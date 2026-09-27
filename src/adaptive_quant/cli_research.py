@@ -8,33 +8,15 @@ RESEARCH -> VALIDATED (or back), recorded in the governance ledger.
 from __future__ import annotations
 
 import argparse
-import dataclasses
-import re
 from collections import Counter
 from datetime import date
 from pathlib import Path
 
-from adaptive_quant.cli_backtest import TRADEABLE, default_range
 from adaptive_quant.config.loader import LoadedConfig
-from adaptive_quant.core.clock import MARKET_TZ, Clock
-from adaptive_quant.core.enums import TradingMode
-from adaptive_quant.core.errors import ConfigurationError, StrategyError
+from adaptive_quant.core.clock import Clock
 from adaptive_quant.governance.research import GovernanceLedger
-from adaptive_quant.quant.backtest.data import load_backtest_data
-from adaptive_quant.quant.backtest.runner import engine_settings, risk_warmup_bars
-from adaptive_quant.quant.data.calendar import nyse_calendar
-from adaptive_quant.quant.data.factory import build_store
-from adaptive_quant.quant.research.pipeline import research_candidates, run_research
-from adaptive_quant.quant.research.report import write_report
-from adaptive_quant.quant.research.robustness import ParamGrid
-from adaptive_quant.quant.research.trials import (
-    TrialContext,
-    TrialRegistry,
-    TrialSpec,
-    data_fingerprint,
-)
-from adaptive_quant.quant.strategies.base import Strategy
-from adaptive_quant.quant.strategies.catalog import StrategyCatalog
+from adaptive_quant.quant.research.trials import TrialRegistry
+from adaptive_quant.services import research
 
 EXIT_OK = 0
 
@@ -74,99 +56,29 @@ def run(args: argparse.Namespace, loaded: LoadedConfig, clock: Clock) -> int:
 
 
 def _run(args: argparse.Namespace, loaded: LoadedConfig, clock: Clock) -> int:
-    loaded, overrides = _apply_overrides(loaded, args)
-    s = loaded.settings
-    cfg = s.research
-    catalog = StrategyCatalog.from_config(s.strategies)
-    eligible = {st.strategy_id for st in catalog.eligible(TradingMode.BACKTEST)}
-    versions = [e.version for e in catalog.entries if e.version.strategy_id in eligible]
-    if args.strategies:
-        unknown = [sid for sid in args.strategies if sid not in eligible]
-        if unknown:
-            raise ConfigurationError(
-                f"not available for research: {unknown}",
-                hint="use ids from `aq strategies list` (disabled strategies cannot run)",
-            )
-        versions = [v for v in versions if v.strategy_id in args.strategies]
-    else:
-        versions = research_candidates(versions)
-    if not versions:
-        raise ConfigurationError("no strategies to research")
-
-    # every valid grid point decides the common warm-up and data needs
-    grid_strategies: list[Strategy] = []
-    for v in versions:
-        grid = ParamGrid.build(v.params, v.param_grid, cfg.max_grid_points)
-        for c in grid.coords():
-            try:
-                spec = TrialSpec(v.strategy_id, v.implementation, grid.params(c), c)
-                grid_strategies.append(spec.build())
-            except StrategyError:
-                continue  # invalid combination: reported by the pipeline
-    source = args.source or s.data.primary_provider
-    required = sorted({*TRADEABLE, *(st.signal_symbol for st in grid_strategies)})
-    optional = sorted(
-        {*s.universe.benchmarks, *(o for st in grid_strategies for o in st.optional_symbols)}
-    )
-    data = load_backtest_data(
-        build_store(loaded, clock),
-        source,
-        required,
-        optional,
-        use_synthetic=s.backtest.use_synthetic_history,
-        synthetic_symbols=s.data.synthetic.products.keys(),
-    )
-    calendar = nyse_calendar()
-    start, end = default_range(
-        data,
-        grid_strategies,
-        calendar,
-        args.start,
-        args.end,
-        risk_warmup_bars(s),
-    )
-    ctx = TrialContext(
-        frames=data.frames,
-        synthetic=data.synthetic,
-        instruments=s.universe.by_symbol,
-        calendar=calendar,
-        settings=engine_settings(s),
-        start=start,
-        end=end,
-        data_fingerprint=data_fingerprint(data.frames),
-    )
-    now = clock.now()
-    stamp = f"{now.astimezone(MARKET_TZ):%Y%m%d-%H%M%S}"
-    name = re.sub(r"[^a-z0-9_+-]", "", "+".join(args.strategies or ["all"]))[:60]
-    out = (
-        loaded.resolve_path(Path(args.out))
-        if args.out
-        else loaded.resolve_path(cfg.output_dir) / f"{stamp}-{name}"
-    )
     print(
         "HYPOTHETICAL RESEARCH - simulated backtests; "
         "no parameter is adopted, no performance claim is made."
     )
-    result = run_research(
-        versions,
-        ctx,
-        cfg,
-        TrialRegistry(loaded.resolve_path(cfg.registry_path)),
-        GovernanceLedger(loaded.resolve_path(cfg.governance_ledger)),
-        now=now,
-        config_version=loaded.config_version,
-        report_path=str(out / "report.html"),
-        progress=lambda msg: print(f"  {msg}"),
+    outcome = research.run(
+        loaded,
+        clock,
+        research.ResearchRequest(
+            strategies=args.strategies,
+            source=args.source,
+            start=args.start,
+            end=args.end,
+            use_synthetic_history=args.synthetic,
+            workers=args.workers,
+            simulations=args.simulations,
+            scheme=args.scheme,
+            out_dir=loaded.resolve_path(Path(args.out)) if args.out else None,
+        ),
+        progress=lambda msg, _f: print(f"  {msg}"),
     )
-    result.notes[:0] = [*overrides, *(f"data {k}: {v}" for k, v in data.provenance.items())]
-    if data.missing_optional:
-        result.notes.append(f"optional data unavailable: {', '.join(data.missing_optional)}")
-    report = write_report(
-        result, out, f"Research: {' + '.join(args.strategies or ['all candidates'])}"
-    )
-
+    result = outcome.result
     print(
-        f"period {start} .. {end}; {result.trials_this_run} trials this run, "
+        f"period {outcome.start} .. {outcome.end}; {result.trials_this_run} trials this run, "
         f"{result.trials_registered} distinct trials on this data"
     )
     if result.synthetic_sessions:
@@ -195,41 +107,8 @@ def _run(args: argparse.Namespace, loaded: LoadedConfig, clock: Clock) -> int:
         )
     for note in result.notes:
         print(f"note: {note}")
-    print(f"report: {report}")
+    print(f"report: {outcome.report}")
     return EXIT_OK
-
-
-def _apply_overrides(
-    loaded: LoadedConfig, args: argparse.Namespace
-) -> tuple[LoadedConfig, list[str]]:
-    s = loaded.settings
-    notes: list[str] = []
-    research = s.research
-    backtest = s.backtest
-    if args.workers is not None:
-        research = research.model_copy(update={"workers": args.workers})
-    if args.simulations is not None:
-        mc = type(research.monte_carlo).model_validate(
-            {**research.monte_carlo.model_dump(), "simulations": args.simulations}
-        )
-        research = research.model_copy(update={"monte_carlo": mc})
-        notes.append(f"monte_carlo.simulations={args.simulations}")
-    if args.scheme is not None:
-        wf = research.walk_forward.model_copy(update={"scheme": args.scheme})
-        research = research.model_copy(update={"walk_forward": wf})
-        notes.append(f"walk_forward.scheme={args.scheme}")
-    if args.synthetic is not None:
-        backtest = backtest.model_copy(update={"use_synthetic_history": args.synthetic})
-        notes.append(f"use_synthetic_history={args.synthetic}")
-    if research.workers < 1:
-        raise ConfigurationError("--workers must be >= 1")
-    settings = s.model_copy(update={"research": research, "backtest": backtest})
-    out = (
-        [f"command-line overrides of config {loaded.config_version}: {', '.join(notes)}"]
-        if notes
-        else []
-    )
-    return dataclasses.replace(loaded, settings=settings), out
 
 
 def _trials(loaded: LoadedConfig) -> int:

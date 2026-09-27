@@ -2,8 +2,9 @@
 # Container entrypoint for the Python services (Railway or any Docker host).
 #
 #   AQ_ROLE=api       deployment check, then the operator API on $PORT (default 8000)
-#   AQ_ROLE=worker    deployment check, then the scheduler if AQ_SCHEDULER_ENABLED=true,
-#                     otherwise stay idle so research/backtest jobs can be run in it
+#   AQ_ROLE=worker    deployment check, then `aq worker run`: control-plane jobs, plus the
+#                     trading scheduler only if AQ_SCHEDULER_ENABLED=true (master gate)
+#                     AND an operator started it from the Trading Control page
 #   AQ_ROLE=migrate   apply database migrations and exit
 #   <command ...>     run that command instead (one-off jobs, pre-deploy migrations)
 #
@@ -53,11 +54,15 @@ case "${AQ_ROLE:-}" in
     ;;
   worker)
     run aq deploy check --role worker
+    # The worker always runs control-plane jobs (data, backtests, research). The trading
+    # scheduler runs inside it only while BOTH the master gate AQ_SCHEDULER_ENABLED and
+    # the audited operator switch (Trading Control page) allow it.
     if [ -n "$scheduler" ]; then
-      start aq trade run
+      echo "worker: master gate ON - the scheduler can be started from Trading Control"
+    else
+      echo "worker: master gate OFF (AQ_SCHEDULER_ENABLED) - jobs only, no trading scheduler"
     fi
-    echo "worker: scheduler disabled (AQ_SCHEDULER_ENABLED is not true); idle for research and backtest jobs"
-    start sleep infinity
+    start aq worker run
     ;;
   migrate)
     start aq db upgrade

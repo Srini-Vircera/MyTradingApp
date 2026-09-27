@@ -43,6 +43,20 @@
 		@insecure header X-Forwarded-Proto http
 		redir @insecure https://{host}{uri} 308
 
+		# CSV uploads only: larger bodies (the API re-checks the 25 MiB limit and
+		# validates the file); every other API request keeps the 64KB cap below
+		handle /api/v1/data/uploads {
+			request_body {
+				max_size 26MB
+			}
+			reverse_proxy {$API_UPSTREAM} {
+				transport http {
+					dial_timeout 5s
+					response_header_timeout 120s
+				}
+			}
+		}
+
 		# the operator API (bearer token checked by the API itself)
 		handle /api/v1/* {
 			request_body {

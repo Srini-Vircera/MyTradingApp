@@ -26,13 +26,13 @@ from urllib.parse import urlparse
 
 from adaptive_quant.config.loader import LoadedConfig
 from adaptive_quant.config.secrets import Secrets
+from adaptive_quant.control.state import master_gate
 from adaptive_quant.core.enums import DeploymentEnvironment, TradingMode
 
 EXIT_OK = 0
 EXIT_REFUSED = 2
 ROLES = ("api", "worker")
 ALPACA_PAPER_HOST = "paper-api.alpaca.markets"
-TRUE = {"1", "true", "yes", "on"}
 
 
 def register(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -43,7 +43,7 @@ def register(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
 
 
 def scheduler_enabled(environ: Mapping[str, str]) -> bool:
-    return environ.get("AQ_SCHEDULER_ENABLED", "").strip().lower() in TRUE
+    return master_gate(environ)
 
 
 def problems(

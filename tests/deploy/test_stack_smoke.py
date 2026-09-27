@@ -148,3 +148,20 @@ def test_the_deployed_stack(stack: tuple[str, Database]) -> None:
         assert r.status_code == 308 and r.headers["location"].startswith("https://")
         big = c.post("/api/v1/kill-switch/engage", content=b"x" * 70_000, headers=auth)
         assert big.status_code == 413
+
+        # control plane through the proxy: a job is queued in PostgreSQL for the worker
+        job = c.post("/api/v1/jobs/data/inventory", json={"actor": "ann"}, headers=auth)
+        assert job.status_code == 200 and job.json()["job"]["status"] == "queued"
+        assert c.post("/api/v1/jobs/data/inventory", json={"actor": "ann"}).status_code == 401
+
+        # CSV uploads may exceed 64KB (only on the upload path), up to the API's limit
+        rows = "".join(f"2024-01-{d:02d},1,2,0.5,1.5,100\n" for d in range(2, 30)) * 150
+        csv = ("date,open,high,low,close,volume\n" + rows).encode()
+        assert len(csv) > 70_000
+        q = {"symbol": "QQQ", "actor": "ann", "filename": "qqq.csv"}
+        up = c.post("/api/v1/data/uploads", params=q, content=csv,
+                    headers={**auth, "Content-Type": "text/csv"})  # fmt: skip
+        assert up.status_code in (200, 400), up.text  # reached the API (duplicates -> invalid)
+        huge = c.post("/api/v1/data/uploads", params=q, content=b"x" * (27 * 1024 * 1024),
+                      headers={**auth, "Content-Type": "text/csv"})  # fmt: skip
+        assert huge.status_code == 413
