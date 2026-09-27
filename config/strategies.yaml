@@ -53,6 +53,19 @@ strategies:
       params: {fast: 20, mid: 50, slow: 100}
       param_grid: {fast: [10, 20, 30], mid: [40, 50, 60], slow: [100, 120, 150]}
 
+    - id: golden_death_cross
+      family: long_term_trend
+      params: {fast_period: 50, slow_period: 200, ma_type: SMA, bearish_action: cash}
+      # every point is a counted trial; fast >= slow points are invalid and reported
+      param_grid:
+        fast_period: [20, 50, 75, 100]
+        slow_period: [100, 150, 200, 250]
+        ma_type: [SMA, EMA]
+      notes: >-
+        Golden Cross / Death Cross (technical-analysis hypothesis). 50/200 SMA is the
+        classic configuration; other values are crossover variants. Bullish regime ->
+        long QQQ, bearish regime -> cash by default.
+
     - id: st_ema_cross
       family: short_term_trend
       params: {fast: 10, slow: 30}

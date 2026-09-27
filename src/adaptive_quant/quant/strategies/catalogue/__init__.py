@@ -3,6 +3,7 @@
 from adaptive_quant.quant.strategies.catalogue import (  # noqa: F401
     benchmark,
     breakout,
+    crossover,
     mean_reversion,
     momentum,
     regime,

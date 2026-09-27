@@ -117,6 +117,10 @@ class Strategy(ABC):
     family: ClassVar[StrategyFamily]
     version: ClassVar[str] = "1.0.0"
     description: ClassVar[str]
+    #: optional human-readable name for the dashboard (defaults to the implementation id)
+    title: ClassVar[str] = ""
+    #: optional longer explanation for the dashboard
+    summary: ClassVar[str] = ""
     param_specs: ClassVar[tuple[ParamSpec, ...]] = ()
     can_long: ClassVar[bool] = True  # False: score must be <= 0 (bearish-only)
     can_short: ClassVar[bool] = True  # False: suggested exposure never negative

@@ -933,12 +933,24 @@ export interface components {
             execution_delay_bars?: number | null;
             /** Initial Capital */
             initial_capital?: number | null;
+            /**
+             * Run Mode
+             * @default ensemble
+             * @enum {string}
+             */
+            run_mode: "ensemble" | "independent";
             /** Source */
             source?: string | null;
             /** Start */
             start?: string | null;
             /** Strategies */
             strategies: string[];
+            /** Strategy Params */
+            strategy_params?: {
+                [key: string]: {
+                    [key: string]: boolean | number | string;
+                };
+            };
             /** Use Synthetic History */
             use_synthetic_history?: boolean | null;
         };

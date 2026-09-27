@@ -178,7 +178,23 @@ function Detail({ s, phrase, onChanged }: { s: Row; phrase: string; onChanged: (
   const headline = ((backtest?.summary as Row | undefined)?.headline ?? {}) as Row;
   return (
     <Section title={`Strategy ${sid}`}>
+      {s.title && s.title !== sid ? <h3>{text(s.title)}</h3> : null}
+      <p>{text(s.summary || s.description)}</p>
       <dl className="kv">
+        {s.implementation === "golden_death_cross" && (
+          <>
+            <dt>Moving averages</dt>
+            <dd>
+              Fast MA {text((s.params as Row).fast_period)} · Slow MA {text((s.params as Row).slow_period)} · MA type{" "}
+              {text((s.params as Row).ma_type)} · bearish: {text((s.params as Row).bearish_action)}{" "}
+              {(s.params as Row).fast_period === 50 && (s.params as Row).slow_period === 200 && (s.params as Row).ma_type === "SMA" ? (
+                <span className="tag real">CLASSIC 50/200 SMA</span>
+              ) : (
+                <span className="tag synthetic">VARIANT</span>
+              )}
+            </dd>
+          </>
+        )}
         <dt>Family / implementation</dt>
         <dd>
           {text(s.family)} / {text(s.implementation)} (code {text(s.code_version)})
@@ -322,6 +338,7 @@ export default function StrategiesPage() {
           rows={rows}
           columns={[
             { key: "strategy_id", label: "Strategy" },
+            { key: "title", label: "Name", render: (r) => (r.title && r.title !== r.strategy_id ? text(r.title) : "—") },
             { key: "family", label: "Family" },
             { key: "version_id", label: "Version" },
             {

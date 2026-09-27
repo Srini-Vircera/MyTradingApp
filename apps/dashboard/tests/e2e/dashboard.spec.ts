@@ -162,3 +162,41 @@ test("settings show the Trading Mode selector without a live option", async ({ p
   await expect(trading.getByRole("radio")).toHaveCount(2);
   await expect(trading.getByText("Live Trading: LOCKED / NOT AVAILABLE.")).toBeVisible();
 });
+
+test("compare golden_death_cross 50/200 SMA against buy-and-hold independently", async ({ page }) => {
+  const comparison = {
+    mode: "independent", disclaimer: "HYPOTHETICAL", strategies: ["golden_death_cross", "baseline_buy_hold"],
+    source: "file", period: { start: "2017-07-13", end: "2026-09-25" }, initial_capital: 100000, has_synthetic: false,
+    unpriced_instruments: ["TQQQ", "SQQQ"], notes: [],
+    comparison: [
+      { strategy: "golden_death_cross", ending_equity: 180000, total_return: 0.8, cagr: 0.07, sharpe: 0.6 },
+      { strategy: "baseline_buy_hold", ending_equity: 250000, total_return: 1.5, cagr: 0.1, sharpe: 0.7 },
+    ],
+    benchmarks: [{ series: "QQQ", total_return: 1.5 }],
+    runs: [
+      { strategies: ["golden_death_cross"], period: { start: "2017-07-13", end: "2026-09-25" }, headline: {}, curve: [], metrics: {},
+        crossover: { golden_death_cross: { fast_period: 50, slow_period: 200, ma_type: "SMA", classic: true, first_signal: "2017-07-13",
+          current_regime: "bullish", golden_cross_dates: ["2019-03-25"], death_cross_dates: ["2018-12-10"], events: [], regime_periods: [] } } },
+      { strategies: ["baseline_buy_hold"], period: { start: "2017-07-13", end: "2026-09-25" }, headline: {}, curve: [], metrics: {} },
+    ],
+  };
+  const rec = await mockApi(page, {
+    override: (path) => (path === `/api/v1/backtests/runs/${JOB_ID}` ? { status: 200, body: { run: { job_id: JOB_ID, summary: comparison }, job: { ...fixtures()["/api/v1/jobs"] as object, id: JOB_ID, status: "succeeded" } } } : null),
+  });
+  await signIn(page, "/backtests/");
+  await page.getByRole("checkbox", { name: /golden_death_cross/ }).check();
+  await expect(page.getByRole("radio", { name: /Combined ensemble/ })).toBeChecked();
+  await page.getByRole("radio", { name: /Independent comparison/ }).check();
+  await expect(page.getByText("CLASSIC 50/200 SMA")).toBeVisible();
+  await page.getByLabel("Starting capital (USD)").fill("100000");
+  await page.getByLabel("Start date (blank = all available)").fill("2016-09-26");
+  await page.getByLabel("End date (blank = latest)").fill("2026-09-25");
+  await page.getByLabel(/Your name/).first().fill("ann");
+  await page.getByRole("button", { name: "Run backtest" }).click();
+  await expect.poll(() => rec.posts.map((p) => p.path)).toEqual(["/api/v1/jobs/backtest"]);
+  expect(rec.posts[0]!.body).toMatchObject({ params: {
+    strategies: ["baseline_buy_hold", "golden_death_cross"], run_mode: "independent",
+    start: "2016-09-26", end: "2026-09-25", initial_capital: 100000 } });
+  await expect(page.getByText("Side-by-side results (hypothetical)")).toBeVisible();
+  await expect(page.getByText(/not an ensemble/)).toBeVisible();
+});

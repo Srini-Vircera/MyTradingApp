@@ -78,6 +78,15 @@
             ],
             "title": "Initial Capital"
           },
+          "run_mode": {
+            "default": "ensemble",
+            "enum": [
+              "ensemble",
+              "independent"
+            ],
+            "title": "Run Mode",
+            "type": "string"
+          },
           "source": {
             "anyOf": [
               {
@@ -111,6 +120,36 @@
             "minItems": 1,
             "title": "Strategies",
             "type": "array"
+          },
+          "strategy_params": {
+            "maxProperties": 10,
+            "patternProperties": {
+              "^[a-z0-9_]{1,64}$": {
+                "maxProperties": 20,
+                "patternProperties": {
+                  "^[a-z][a-z0-9_]{0,63}$": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "pattern": "^[A-Za-z0-9_.-]{0,40}$",
+                        "type": "string"
+                      }
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "title": "Strategy Params",
+            "type": "object"
           },
           "use_synthetic_history": {
             "anyOf": [

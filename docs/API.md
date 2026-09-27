@@ -88,6 +88,11 @@ the worker executes it. An identical job that is already queued or running is
 returned instead of a duplicate. Job rows never hold credentials; errors are
 scrubbed of any configured secret value before they are stored.
 
+**Backtest jobs.** `POST /jobs/backtest` takes `params.run_mode` (`ensemble`, the
+default and unchanged behaviour, or `independent`) and optional
+`params.strategy_params` (`{strategy_id: {name: scalar}}` for selected strategies only;
+validated by the strategy registry before queueing, applied to that run only).
+
 **Uploads.** `POST /data/uploads?symbol=&kind=bars|actions&frequency=&filename=&actor=`
 with the CSV as the body (`Content-Type: text/csv`, at most 25 MiB; the proxy allows
 26 MB on this path only). The file name is a display hint and must be a plain

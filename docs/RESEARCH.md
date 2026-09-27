@@ -38,6 +38,17 @@ aq research status                               # latest evidence and automated
 strategies × ~15 grid points, plus Monte Carlo re-runs, take tens of minutes single-threaded;
 use `--workers`.
 
+### Golden/Death Cross parameter grid
+
+`golden_death_cross` researches `fast_period` ∈ {20, 50, 75, 100} × `slow_period` ∈
+{100, 150, 200, 250} × `ma_type` ∈ {SMA, EMA} (32 grid points, each a counted trial).
+Points with `fast_period >= slow_period` (100/100) are refused by the strategy and
+reported as invalid trials, so 30 are evaluated. The usual methodology applies
+unchanged (walk-forward, DSR, PBO, bootstrap, FDR, robustness plateau, Monte Carlo,
+cost/delay sensitivity, gates); selection prefers the robust plateau centre, never
+the highest historical CAGR. Research needs QQQ, TQQQ and SQQQ data (an existing
+requirement of the research pipeline).
+
 ## Pipeline
 
 For each candidate:

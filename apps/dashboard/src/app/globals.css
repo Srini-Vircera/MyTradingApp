@@ -225,3 +225,4 @@ fieldset.plain { border: 0; padding: 0; margin: 0; } fieldset.plain legend { fon
 .mode-option.selected { border-color: var(--series-1); }
 .status-row { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
 .status-row .stat { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--surface); }
+details.params { border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin: 8px 0; } details.params summary { cursor: pointer; font-weight: 600; }

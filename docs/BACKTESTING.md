@@ -14,7 +14,7 @@ aq data download                                   # validated, stored history f
 aq backtest run --strategy ltt_sma_distance        # real data only
 aq backtest run --strategy ltt_sma_distance --synthetic         # + labelled synthetic pre-2010 history
 aq backtest run --strategy st_ema_cross --execution next_open --delay 1
-aq backtest run --strategy a --strategy b          # several strategies: naive equal-weight average
+aq backtest run --strategy a --strategy b          # several strategies: ONE combined portfolio (ensemble)
 ```
 
 **Output directory.** Each run writes to `var/reports/<timestamp>-<ids>/`:
@@ -55,6 +55,42 @@ The result lists the instruments that were not loaded. The engine checks every
 allocation and stops the run with an error if weight ever lands on an instrument
 without prices, so this cannot silently change results. Without a corporate-actions
 file the QQQ series excludes dividends (see [DATA.md](DATA.md)).
+
+### Several strategies: combined ensemble vs independent comparison
+
+Before this change, selecting several strategies always meant **one combined
+backtest**: their signals feed the configured ensemble → allocation policy → risk
+engine (a naive exposure average only when the risk engine is switched off). That
+remains the default (`run_mode: ensemble`) and is unchanged.
+
+The dashboard (and the job API) now also offers **independent comparison**
+(`run_mode: independent`): one backtest per selected strategy, all with the identical
+price data, date range (starting once *every* selected strategy and the risk engine
+is warmed up), starting capital, execution timing and delay, costs and risk
+settings, shown side by side with the QQQ benchmark. It is never a portfolio. The
+command line keeps the ensemble behaviour.
+
+### Per-run strategy parameters
+
+A backtest may override a selected strategy's parameters for that run only (for
+example a 20/100 EMA Golden/Death Cross variant). They are validated by the strategy
+registry (invalid values are refused before the job is queued), recorded in the
+result and in the strategy version id, and never change the configured or approved
+strategy.
+
+### Start date and warm-up
+
+If the requested start is earlier than the first session on which every selected
+strategy (and the risk engine) can produce a valid signal, the backtest starts on
+that session and says so in its notes; earlier bars only warm up the indicators.
+(Previously such a request failed with "insufficient history".)
+
+### Golden/Death Cross details in results
+
+For `golden_death_cross` the stored result also lists the moving-average settings
+(classic or variant), the first signal date, Golden and Death Cross dates, the regime
+history and, per cross, the fills that the resulting decision produced. These are
+derived from the decisions the engine already records; nothing is stored twice.
 
 ## Execution timing (no look-ahead)
 
