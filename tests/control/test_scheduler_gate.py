@@ -32,11 +32,35 @@ class FakeKillSwitch:
         return self.engaged
 
 
+class FakeStrategy:
+    def __init__(self, sid: str) -> None:
+        self.strategy_id = sid
+
+
+class FakeAccount:
+    def __init__(self, is_paper: bool) -> None:
+        self.is_paper = is_paper
+
+
+class FakeBroker:
+    """Read-only: an order call would raise AttributeError."""
+
+    def __init__(self, is_paper: bool) -> None:
+        self.is_paper = is_paper
+
+    def get_account(self) -> FakeAccount:
+        return FakeAccount(self.is_paper)
+
+
 class FakeDeps:
     engaged = False
+    paper_account = True
+    strategy_ids: tuple[str, ...] = ()
 
     def __init__(self, db: Database) -> None:
         self.db = db
+        self.broker = FakeBroker(FakeDeps.paper_account)
+        self.strategies = [FakeStrategy(s) for s in FakeDeps.strategy_ids]
         self.kill_switch = FakeKillSwitch(FakeDeps.engaged)
         self.transmit_guard: Any = None
 
@@ -64,6 +88,8 @@ def base() -> LoadedConfig:
 def fake_scheduler(monkeypatch: pytest.MonkeyPatch) -> None:
     FakeScheduler.ticks = 0
     FakeDeps.engaged = False
+    FakeDeps.paper_account = True
+    FakeDeps.strategy_ids = ()
     monkeypatch.setattr(sched_mod, "Scheduler", FakeScheduler)
 
 
@@ -191,7 +217,7 @@ def test_live_mode_is_refused_before_building(
 
 
 # ------------------------------------------------------------------ runtime PAPER mode
-def paper_ready(db: Database, *, verified: bool = True) -> None:
+def paper_ready(db: Database, *, verified: bool = True, age: timedelta = timedelta(0)) -> None:
     from adaptive_quant.control.readiness import PREFLIGHT_CHECKS, SWITCH_CHECKS
     from adaptive_quant.control.state import BROKER_KEY
 
@@ -296,3 +322,64 @@ def test_guard_refuses_after_the_master_gate_closes(base: LoadedConfig, db: Data
     assert guard() is None
     environ["AQ_SCHEDULER_ENABLED"] = "false"
     assert guard() == "the scheduler master gate is off"
+
+
+def test_demoting_a_running_strategy_stops_paper_orders_and_automation(
+    base: LoadedConfig, db: Database
+) -> None:
+    """Demoting/disabling a strategy in the Strategy Manager takes effect at once."""
+    paper_ready(db)
+    repo = ControlRepository(db)
+    promoted = {"baseline_buy_hold": {"lifecycle": "paper"}}
+    repo.save_runtime_config(
+        expected_revision=1,
+        overlay={"trading.mode": "paper"},
+        strategy_overrides=promoted,
+        actor="op",
+        now=NOW,
+        changes=[],
+        version_before="b",
+        version_after="c",
+    )
+    FakeDeps.strategy_ids = ("baseline_buy_hold",)
+    sup = supervisor(base, db, ON)
+    sup.step()
+    assert sup.running
+    guard: Any = sup._scheduler.deps.transmit_guard  # type: ignore[union-attr]
+    assert guard() is None
+    demoted = {"baseline_buy_hold": {"lifecycle": "validated"}}
+    repo.save_runtime_config(
+        expected_revision=2,
+        overlay={"trading.mode": "paper"},
+        strategy_overrides=demoted,
+        actor="op",
+        now=NOW,
+        changes=[],
+        version_before="c",
+        version_after="d",
+    )
+    reason = guard()
+    assert reason is not None and "baseline_buy_hold" in reason  # no further paper order
+    sup.step()
+    assert not sup.running and "no longer eligible" in sup.status.detail
+
+
+def test_paper_automation_resumes_after_a_redeploy_with_an_old_verification(
+    base: LoadedConfig, db: Database
+) -> None:
+    """A worker restart days later resumes the requested automation (live re-check)."""
+    paper_ready(db, age=timedelta(days=3))
+    sup = supervisor(base, db, ON)
+    sup.step()
+    assert sup.running and sup.status.mode == "paper"
+    sup.stop("end of test")
+
+
+def test_paper_automation_refused_if_the_live_account_is_not_paper(
+    base: LoadedConfig, db: Database
+) -> None:
+    paper_ready(db)
+    FakeDeps.paper_account = False
+    sup = supervisor(base, db, ON)
+    sup.step()
+    assert not sup.running and "not a paper account" in sup.status.detail

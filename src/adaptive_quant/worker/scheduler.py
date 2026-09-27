@@ -16,29 +16,33 @@ step already in progress finishes (it is never interrupted half-way).
 Configuration changes made while the scheduler runs are **not** hot-swapped:
 the supervisor reports that a stop/start is needed to apply them - except the
 **runtime trading mode**: if it no longer matches the mode the scheduler was
-started in (e.g. the operator switched PAPER -> SHADOW), the scheduler is
-stopped at once. Independently, every order transmission asks a guard that
-re-reads the persisted mode, the operator switch and the master gate, so no
-paper order can be sent after a switch to SHADOW or a stop, even mid-step.
+started in (e.g. the operator switched PAPER -> SHADOW), or a strategy it
+started with was demoted or disabled, the scheduler is stopped at once.
+Independently, every order transmission asks a guard that re-reads the
+persisted mode, the operator switch, the master gate and strategy eligibility,
+so no paper order can be sent after a switch to SHADOW, a stop or a demotion,
+even mid-step.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
 from adaptive_quant.config.loader import LoadedConfig
 from adaptive_quant.config.secrets import Secrets
-from adaptive_quant.control.readiness import PREFLIGHT_CHECKS, SWITCH_CHECKS, verification_problems
+from adaptive_quant.control.readiness import SWITCH_CHECKS, verification_problems
 from adaptive_quant.control.state import BROKER_KEY, SCHEDULER_KEY, desired_running, master_gate
 from adaptive_quant.core.clock import Clock
+from adaptive_quant.core.enums import TradingMode
 from adaptive_quant.core.errors import AQError, SafetyViolation
 from adaptive_quant.observability.logging import get_logger
 from adaptive_quant.persistence.control import ControlRepository
 from adaptive_quant.persistence.db import Database
 from adaptive_quant.persistence.locks import AdvisoryLock
+from adaptive_quant.quant.strategies.catalog import StrategyCatalog
 from adaptive_quant.services.runtime import effective_config
 from adaptive_quant.trading.scheduler.cycle import CycleDeps
 from adaptive_quant.trading.scheduler.runner import Scheduler
@@ -55,10 +59,26 @@ def desired_mode(state: Any) -> str | None:
     return value.get("mode") if isinstance(value, dict) else None
 
 
+def eligible_ids(effective: LoadedConfig, mode: str) -> frozenset[str]:
+    """Strategies currently allowed to trade in ``mode`` (enabled + lifecycle)."""
+    catalog = StrategyCatalog.from_config(effective.settings.strategies)
+    return frozenset(st.strategy_id for st in catalog.eligible(TradingMode(mode)))
+
+
+def withdrawn(effective: LoadedConfig, mode: str, started: Iterable[str]) -> list[str]:
+    """Strategies the scheduler started with that are no longer eligible (demoted/disabled)."""
+    return sorted(set(started) - eligible_ids(effective, mode))
+
+
 def make_transmit_guard(
-    base: LoadedConfig, db: Database, environ: Mapping[str, str], running_mode: str
+    base: LoadedConfig,
+    db: Database,
+    environ: Mapping[str, str],
+    running_mode: str,
+    started: Iterable[str] = (),
 ) -> Callable[[], str | None]:
     """Asked before every order transmission; any reason (or error) blocks it."""
+    started_ids = frozenset(started)
 
     def guard() -> str | None:
         if not master_gate(environ):
@@ -72,6 +92,9 @@ def make_transmit_guard(
             return "automation was stopped by the operator"
         if desired_mode(st) not in (None, running_mode):
             return "automation was requested for a different mode"
+        gone = withdrawn(effective, running_mode, started_ids)
+        if gone:
+            return f"strategies no longer eligible for {running_mode}: {', '.join(gone)}"
         return None
 
     return guard
@@ -115,6 +138,7 @@ class SchedulerSupervisor:
         self._lock: AdvisoryLock | None = None
         self._retry_at: datetime | None = None
         self._next_wake: datetime | None = None
+        self._started_ids: frozenset[str] = frozenset()
 
     @property
     def running(self) -> bool:
@@ -153,6 +177,19 @@ class SchedulerSupervisor:
                 return
         self._tick(now)
 
+    @staticmethod
+    def _paper_refusal(deps: Any) -> str | None:
+        """Live read-only re-checks before paper automation (re)starts."""
+        if deps.kill_switch.is_engaged():
+            return "the kill switch is engaged; release it before starting paper automation"
+        try:
+            account = deps.broker.get_account()  # read only
+        except AQError as exc:
+            return f"the Alpaca paper account cannot be read: {exc.message}"
+        if not account.is_paper:
+            return "the broker account is not a paper account"
+        return None
+
     def _mode_mismatch(self, repo: ControlRepository) -> str | None:
         """The persisted runtime mode (or the requested one) changed since start."""
         try:
@@ -165,6 +202,9 @@ class SchedulerSupervisor:
         wanted = desired_mode(repo.get_state(SCHEDULER_KEY))
         if wanted not in (None, mode):
             return f"automation was requested for {wanted} mode"
+        gone = withdrawn(effective, mode, self._started_ids)
+        if gone:
+            return f"strategies no longer eligible for {mode}: {', '.join(gone)}"
         return None
 
     def _start(self, now: datetime) -> None:
@@ -182,22 +222,26 @@ class SchedulerSupervisor:
                     hint="start automation again from Trading Control",
                 )
             if mode.value == "paper":
+                # the operator started this with a fresh verification (checked by the API);
+                # a worker (re)start - e.g. after a redeploy - needs a successful one on
+                # record and re-checks the live account below
                 verification = (repo.get_state(BROKER_KEY) or {}).get("value")
-                problems = verification_problems(
-                    verification, now, (*SWITCH_CHECKS, *PREFLIGHT_CHECKS)
-                )
+                problems = verification_problems(verification, now, SWITCH_CHECKS, check_age=False)
                 if problems:
                     raise SafetyViolation(
-                        "paper automation needs a fresh, successful paper-account "
-                        "verification: " + "; ".join(problems)
+                        "paper automation needs a successful paper-account verification: "
+                        + "; ".join(problems)
                     )
             deps = self.build(effective, self.secrets, self.clock)
-            if mode.value == "paper" and deps.kill_switch.is_engaged():
-                deps.db.dispose()
-                raise SafetyViolation(
-                    "the kill switch is engaged; release it before starting paper automation"
-                )
-            deps.transmit_guard = make_transmit_guard(self.base, self.db, self.environ, mode.value)
+            if mode.value == "paper":
+                refusal = self._paper_refusal(deps)
+                if refusal is not None:
+                    deps.db.dispose()
+                    raise SafetyViolation(refusal)
+            started = [st.strategy_id for st in getattr(deps, "strategies", ())]
+            deps.transmit_guard = make_transmit_guard(
+                self.base, self.db, self.environ, mode.value, started
+            )
             lock = AdvisoryLock(deps.db, f"aq-scheduler-{effective.settings.app.environment.value}")
             if not lock.acquire(wait_seconds=0):
                 deps.db.dispose()
@@ -213,6 +257,7 @@ class SchedulerSupervisor:
             return
         self._scheduler = Scheduler(deps)
         self._lock = lock
+        self._started_ids = frozenset(started)
         self._next_wake = None
         self.status.mode = effective.settings.trading.mode.value
         self.status.config_version = effective.config_version

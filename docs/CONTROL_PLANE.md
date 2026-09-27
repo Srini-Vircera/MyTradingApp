@@ -148,11 +148,12 @@ restriction.
 * **Worker.** When automation starts, the supervisor builds the trading cycle from the
   effective configuration (so a PAPER overlay produces the Alpaca paper adapter,
   SHADOW produces shadow order recording). On every supervision round (~15 s) it
-  compares the persisted mode with the mode it started in and stops at once if they
-  differ.
+  compares the persisted mode with the mode it started in, and the strategies it
+  started with with the strategies still eligible, and stops at once if the mode
+  changed or a strategy was demoted or disabled.
 * **Transmit guard.** Before every order transmission the order manager asks a guard
-  that re-reads, from PostgreSQL, the persisted mode, the automation switch and the
-  master gate. If the mode is no longer the one automation started in, automation was
+  that re-reads, from PostgreSQL, the persisted mode, the automation switch, the
+  master gate and strategy eligibility. If the mode is no longer the one automation started in, automation was
   stopped, or anything cannot be read, the order is not sent (fail closed) — even in
   the middle of a cycle step.
 
@@ -200,8 +201,11 @@ where the dashboard says SHADOW while a paper order can still be transmitted.
 - reconciliation healthy;
 - no automation already running (the single-instance lock).
 
-Failed items are listed with what to do. The worker re-checks the mode, the
-verification and the kill switch before it starts, takes the single-scheduler
+Failed items are listed with what to do. Before it starts (or restarts after a
+redeploy or crash, which it does automatically while automation is requested), the
+worker re-checks the mode, requires a successful paper verification on record, reads
+the live account and refuses unless it is a paper account, checks the kill switch,
+takes the single-scheduler
 advisory lock, and every cycle runs the full pre-flight. *Stop Paper Trading* is
 always accepted and never rate limited; from that moment no order is transmitted.
 
@@ -240,3 +244,4 @@ own audit trail and are mirrored here.
 | Accidental live trading | no API path to live mode or `live_approved`; overlay refuses real money; `aq deploy check` refuses live; the broker factory has no live adapter; `AQ_LIVE_TRADING_CONFIRM` is never created |
 | Scheduler started against deployment intent | the master gate is checked on every supervision round, independent of the UI |
 | Concurrent schedulers / workers | advisory lock for the scheduler; `SKIP LOCKED` job claims with owner checks |
+| Trading-state races | mode switch, stop, gate change or strategy demotion/disable is enforced per order by the transmit guard (read from PostgreSQL) and by the supervisor within ~15 s; SHADOW → PAPER needs automation stopped; PAPER → SHADOW stops automation first; runtime settings use optimistic revisions |

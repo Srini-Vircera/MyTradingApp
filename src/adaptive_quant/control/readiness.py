@@ -78,14 +78,24 @@ def verification_age(verification: Mapping[str, Any] | None, now: datetime) -> t
 
 
 def verification_problems(
-    verification: Mapping[str, Any] | None, now: datetime, names: Iterable[str] = SWITCH_CHECKS
+    verification: Mapping[str, Any] | None,
+    now: datetime,
+    names: Iterable[str] = SWITCH_CHECKS,
+    *,
+    check_age: bool = True,
 ) -> list[str]:
-    """Why the latest verification does not allow PAPER (empty list = allowed)."""
+    """Why the latest verification does not allow PAPER (empty list = allowed).
+
+    Operator actions (switching to PAPER, pressing Start) need a verification from
+    the last hour. The worker, when it (re)starts automation the operator already
+    requested - e.g. after a redeploy - needs a successful verification on record
+    (``check_age=False``) and re-checks the account itself.
+    """
     if not verification:
         return ["the Alpaca paper account has not been verified yet"]
     age = verification_age(verification, now)
     limit = timedelta(minutes=ctl.BROKER_VERIFICATION_MAX_AGE_MINUTES)
-    if age is None or age > limit or age < timedelta(minutes=-5):
+    if age is None or (check_age and (age > limit or age < timedelta(minutes=-5))):
         return [
             f"the last verification is older than {ctl.BROKER_VERIFICATION_MAX_AGE_MINUTES} "
             "minutes; verify again"

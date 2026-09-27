@@ -920,7 +920,9 @@ def control_router(sv: ApiServices, auth: Any, limiter: RateLimiter) -> APIRoute
         return MutationResult(
             ok=True,
             message=f"{strategy_id}: {current.value} -> {body.target} (recorded; config "
-            f"{after.config_version}). A running scheduler applies it after a stop/start.",
+            f"{after.config_version}). If automation is running and this strategy can no "
+            "longer trade, no further order is sent for it and automation stops; newly "
+            "eligible strategies join after a stop/start.",
         )
 
     # ================================================================ settings
