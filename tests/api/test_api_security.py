@@ -18,9 +18,24 @@ from tests.conftest import REPO_ROOT
 
 _DB = ["overview", "portfolio", "signals", "risk", "performance", "orders", "shadow-orders",
        "executions", "reconciliation", "cycles", "cycles/x/explain"]  # fmt: skip
-_OTHER = ["strategies", "backtests", "system/health", "configuration", "kill-switch"]
-GET_PAGES = [f"/api/v1/{p}" for p in _DB + _OTHER]
-DB_PAGES = {f"/api/v1/{p}" for p in _DB}
+_CONTROL = ["jobs", f"jobs/{'0' * 32}", "data/datasets", "data/options", "data/uploads",
+            f"data/uploads/{'0' * 32}", "backtests/options", "backtests/runs",
+            f"backtests/runs/{'0' * 32}", "research/runs", "strategies/manager", "settings",
+            "trading/control", "audit/events"]  # fmt: skip
+_OTHER = ["strategies", "backtests", "system/health", "configuration", "kill-switch",
+          "trading/live-readiness"]  # fmt: skip
+GET_PAGES = [f"/api/v1/{p}" for p in _DB + _CONTROL + _OTHER]
+DB_PAGES = {f"/api/v1/{p}" for p in _DB + _CONTROL}
+#: GET page -> route template (for the coverage check)
+_TEMPLATES = {"/x/": "/{cycle_id}/", "jobs/" + "0" * 32: "jobs/{job_id}",
+              "uploads/" + "0" * 32: "uploads/{upload_id}",
+              "runs/" + "0" * 32: "runs/{job_id}"}  # fmt: skip
+
+
+def _template(path: str) -> str:
+    for concrete, template in _TEMPLATES.items():
+        path = path.replace(concrete, template)
+    return path
 
 
 def _flatten(items: list[Any]) -> list[APIRoute]:
@@ -62,29 +77,73 @@ def test_probes_are_public_everything_else_needs_the_token(client: TestClient) -
 
 
 def test_every_route_is_covered_by_the_page_list(client: TestClient) -> None:
-    documented = {p.replace("/x/", "/{cycle_id}/") for p in GET_PAGES} | PROBES
+    documented = {_template(p) for p in GET_PAGES} | PROBES
     get_paths = {r.path for r in routes(client) if "GET" in (r.methods or ())}
     assert get_paths == documented
 
 
-def test_only_the_kill_switch_can_change_state(client: TestClient) -> None:
+#: The complete set of state-changing routes. Adding one is a deliberate, reviewed change:
+#: update this list, its tests (auth, strict body, audit) and docs/API.md together.
+EXPECTED_MUTATIONS = {
+    ("POST", f"/api/v1/{p}")
+    for p in (
+        "kill-switch/engage", "kill-switch/release",
+        "jobs/data/download", "jobs/data/validate", "jobs/data/synthesize",
+        "jobs/data/inventory", "jobs/backtest", "jobs/research", "jobs/broker/verify",
+        "jobs/{job_id}/cancel", "jobs/{job_id}/retry",
+        "data/uploads", "data/uploads/{upload_id}/import", "data/uploads/{upload_id}/discard",
+        "strategies/{strategy_id}/params", "strategies/{strategy_id}/enabled",
+        "strategies/{strategy_id}/lifecycle",
+        "settings",
+        "trading/scheduler/start", "trading/scheduler/stop", "trading/mode",
+    )
+}  # fmt: skip
+
+
+def test_mutations_are_exactly_the_allowlist(client: TestClient) -> None:
     mutating = {
         (m, r.path) for r in routes(client) for m in (r.methods or ()) if m not in ("GET", "HEAD")
     }
-    assert mutating == set(MUTATING_ROUTES)
-    for path in (
-        "/api/v1/configuration",
-        "/api/v1/orders",
-        "/api/v1/strategies",
-        "/api/v1/overview",
-    ):
-        for method in ("POST", "PUT", "PATCH", "DELETE"):
-            assert client.request(
-                method, path, headers=AUTH, json={"mode": "live"}
-            ).status_code in (404, 405)
-    assert not any(
-        "mode" in r.path or "promote" in r.path or "submit" in r.path for r in routes(client)
-    )
+    assert mutating == set(MUTATING_ROUTES) == EXPECTED_MUTATIONS
+    assert all(m == "POST" for m, _p in mutating)  # no PUT/PATCH/DELETE anywhere
+
+
+def test_no_route_can_submit_orders_enable_live_or_touch_secrets(client: TestClient) -> None:
+    for path in ("/api/v1/configuration", "/api/v1/orders", "/api/v1/strategies",
+                 "/api/v1/overview", "/api/v1/settings", "/api/v1/trading/control"):  # fmt: skip
+        for method in ("PUT", "PATCH", "DELETE"):
+            r = client.request(method, path, headers=AUTH, json={"mode": "live"})
+            assert r.status_code in (404, 405), (method, path)
+    words = ("order", "submit", "live", "secret", "credential", "env", "promote", "shell", "exec")
+    for _m, path in MUTATING_ROUTES:
+        assert not any(w in path for w in words), path
+
+
+def test_every_mutation_body_model_forbids_unknown_fields(client: TestClient) -> None:
+    schema = client.app.openapi()  # type: ignore[attr-defined]
+    comps = schema["components"]["schemas"]
+
+    def strict(ref: str, seen: set[str]) -> None:
+        name = ref.rsplit("/", 1)[-1]
+        if name in seen:
+            return
+        seen.add(name)
+        model = comps[name]
+        if model.get("type") == "object" and "properties" in model:
+            assert model.get("additionalProperties") is False, name
+        for prop in model.get("properties", {}).values():
+            for sub in [prop, *prop.get("anyOf", []), prop.get("items", {})]:
+                if "$ref" in sub:
+                    strict(sub["$ref"], seen)
+
+    for method, path in MUTATING_ROUTES:
+        op = schema["paths"][path][method.lower()]
+        if path.endswith("/data/uploads"):  # raw CSV body + strict query parameters
+            names = {p["name"] for p in op["parameters"]}
+            assert names == {"symbol", "kind", "frequency", "filename", "actor"}
+            continue
+        body = op["requestBody"]["content"]["application/json"]["schema"]
+        strict(body["$ref"], set())
 
 
 def test_pages_without_a_database(client: TestClient) -> None:

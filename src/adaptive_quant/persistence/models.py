@@ -29,6 +29,7 @@ from sqlalchemy import (
     Identity,
     Index,
     Integer,
+    LargeBinary,
     MetaData,
     Numeric,
     SmallInteger,
@@ -517,6 +518,181 @@ class CycleStep(Base):
     created_at: Mapped[datetime] = _created()
 
 
+# ================================================================== control plane (PR #4)
+#: job lifecycle states (a job never leaves a terminal state)
+JOB_STATES = ("queued", "running", "succeeded", "failed", "cancelled")
+
+
+class ControlJob(Base):
+    """A unit of work requested through the API and executed by the worker.
+
+    Parameters are validated request models (never shell commands) and never
+    contain credentials. A queued job is claimed by exactly one worker with
+    ``FOR UPDATE SKIP LOCKED``.
+    """
+
+    __tablename__ = "control_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued','running','succeeded','failed','cancelled')", name="status"
+        ),
+        Index("ix_control_jobs_status_requested", "status", "requested_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    job_type: Mapped[str] = mapped_column(String(40), index=True)
+    params_json: Mapped[Json]
+    status: Mapped[str] = mapped_column(String(16))
+    requested_by: Mapped[str] = mapped_column(String(128))
+    requested_at: Mapped[datetime] = mapped_column(TS)
+    started_at: Mapped[datetime | None] = mapped_column(TS)
+    finished_at: Mapped[datetime | None] = mapped_column(TS)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(TS)
+    worker_id: Mapped[str | None] = mapped_column(String(64))
+    progress: Mapped[float | None] = mapped_column(Float)
+    message: Mapped[str] = mapped_column(Text, default="")
+    result_json: Mapped[Json | None]
+    error: Mapped[str | None] = mapped_column(Text)
+    config_version: Mapped[str | None] = mapped_column(String(64))
+    retry_of: Mapped[str | None] = mapped_column(String(36))
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = _created()
+
+
+class ControlJobLog(Base):
+    __tablename__ = "control_job_logs"
+    id: Mapped[int] = _id()
+    job_id: Mapped[str] = mapped_column(ForeignKey("control_jobs.id"), index=True)
+    at: Mapped[datetime] = mapped_column(TS)
+    level: Mapped[str] = mapped_column(String(12))
+    message: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = _created()
+
+
+class DataUpload(Base):
+    """An uploaded CSV held in the database until the worker imports it.
+
+    The API has no access to the worker volume; the worker writes accepted
+    content into the import directory under a server-chosen file name.
+    """
+
+    __tablename__ = "data_uploads"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(16))
+    kind: Mapped[str] = mapped_column(String(16))  # bars / actions
+    frequency: Mapped[str] = mapped_column(String(8))
+    filename_hint: Mapped[str] = mapped_column(String(128))  # display only, never a path
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    sha256: Mapped[str] = mapped_column(String(64))
+    content: Mapped[bytes] = mapped_column(LargeBinary)
+    #: validated / invalid / queued / imported / failed / discarded
+    status: Mapped[str] = mapped_column(String(16))
+    preview_json: Mapped[Json]
+    requested_by: Mapped[str] = mapped_column(String(128))
+    job_id: Mapped[str | None] = mapped_column(String(36))
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime] = mapped_column(TS)
+
+
+class DatasetInventoryRow(Base):
+    """The worker's published summary of its market-data store (replaced wholesale)."""
+
+    __tablename__ = "dataset_inventory"
+    __table_args__ = (
+        UniqueConstraint(
+            "source", "symbol", "frequency", "adjustment", name="uq_dataset_inventory_series"
+        ),
+    )
+    id: Mapped[int] = _id()
+    source: Mapped[str] = mapped_column(String(32))
+    symbol: Mapped[str] = mapped_column(String(16))
+    frequency: Mapped[str] = mapped_column(String(8))
+    adjustment: Mapped[str] = mapped_column(String(8))
+    payload_json: Mapped[Json]
+    updated_at: Mapped[datetime] = mapped_column(TS)
+    created_at: Mapped[datetime] = _created()
+
+
+class BacktestRunRow(Base):
+    """Summary of a finished backtest job (detailed artefacts stay on the worker volume)."""
+
+    __tablename__ = "backtest_runs"
+    job_id: Mapped[str] = mapped_column(ForeignKey("control_jobs.id"), primary_key=True)
+    strategies: Mapped[list[Any]]
+    source: Mapped[str] = mapped_column(String(32))
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date] = mapped_column(Date)
+    initial_capital: Mapped[float] = mapped_column(Float)
+    summary_json: Mapped[Json]
+    report_path: Mapped[str] = mapped_column(Text)
+    config_version: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = _created()
+
+
+class RuntimeConfigRow(Base):
+    """The audited runtime overlay on the YAML configuration (single row, id = 1)."""
+
+    __tablename__ = "runtime_config"
+    __table_args__ = (CheckConstraint("id = 1", name="single_row"),)
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer)
+    overlay_json: Mapped[Json]
+    strategy_overrides_json: Mapped[Json]
+    updated_by: Mapped[str] = mapped_column(String(128))
+    updated_at: Mapped[datetime] = mapped_column(TS)
+    created_at: Mapped[datetime] = _created()
+
+
+class RuntimeConfigChange(Base):
+    __tablename__ = "runtime_config_changes"
+    id: Mapped[int] = _id()
+    revision: Mapped[int] = mapped_column(Integer, index=True)
+    kind: Mapped[str] = mapped_column(String(24))  # setting / strategy / trading_mode
+    path: Mapped[str] = mapped_column(String(160))
+    old_json: Mapped[Json]
+    new_json: Mapped[Json]
+    actor: Mapped[str] = mapped_column(String(128))
+    reason: Mapped[str] = mapped_column(Text)
+    config_version_before: Mapped[str] = mapped_column(String(64))
+    config_version_after: Mapped[str] = mapped_column(String(64))
+    at: Mapped[datetime] = mapped_column(TS)
+    created_at: Mapped[datetime] = _created()
+
+
+class ControlStateRow(Base):
+    """Operator-controlled runtime switches (e.g. the scheduler's desired state)."""
+
+    __tablename__ = "control_state"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value_json: Mapped[Json]
+    updated_by: Mapped[str] = mapped_column(String(128))
+    updated_at: Mapped[datetime] = mapped_column(TS)
+    created_at: Mapped[datetime] = _created()
+
+
+class ControlEvent(Base):
+    """Immutable audit trail of every control-plane mutation (accepted or refused)."""
+
+    __tablename__ = "control_events"
+    id: Mapped[int] = _id()
+    at: Mapped[datetime] = mapped_column(TS, index=True)
+    actor: Mapped[str] = mapped_column(String(128))
+    action: Mapped[str] = mapped_column(String(64), index=True)
+    target: Mapped[str] = mapped_column(String(160))
+    outcome: Mapped[str] = mapped_column(String(16))  # accepted / refused
+    detail_json: Mapped[Json]
+    client: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = _created()
+
+
+class WorkerHeartbeat(Base):
+    __tablename__ = "worker_heartbeats"
+    worker_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(TS)
+    last_seen_at: Mapped[datetime] = mapped_column(TS)
+    status_json: Mapped[Json]
+    created_at: Mapped[datetime] = _created()
+
+
 Index("ix_order_events_at", OrderEvent.at)
 
 #: Tables whose rows can never be updated or deleted (enforced by a trigger).
@@ -543,4 +719,7 @@ APPEND_ONLY = (
     "kill_switch_events",
     "notifications_sent",
     "cycle_steps",
+    "control_job_logs",
+    "runtime_config_changes",
+    "control_events",
 )

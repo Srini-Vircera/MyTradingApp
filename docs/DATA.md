@@ -127,3 +127,33 @@ aq data synthesize                       # synthetic TQQQ/SQQQ + tracking-error 
 
 - **Default end date:** the last *completed* session. A partial "today" bar is never downloaded.
 - **Exit codes:** `0` on success; `2` if anything failed validation.
+
+## Data Manager (dashboard) and uploads
+
+The dashboard's Data page drives the same code as `aq data …`
+(`services/data.py`), executed as worker jobs ([CONTROL_PLANE.md](CONTROL_PLANE.md)):
+
+- **Dataset list** (published by the worker to PostgreSQL after every data job and
+  at worker start): symbol, source/provider, frequency, adjustment, first/last
+  date, rows, validation result, freshness and warnings. Synthetic series are
+  labelled **SYNTHETIC**, and the calibration warning above is shown whenever
+  synthetic data exists or is requested.
+- **Download / update** (file, Alpaca, Polygon; symbols, frequency, dates),
+  **validate** (optionally failing stale data), **refresh the list**, **build
+  synthetic history**. Provider credentials stay on the worker; the page shows
+  only whether each provider is configured.
+- **CSV upload.** Bars (`date,open,high,low,close,volume`; other columns such as
+  `div`/`split` are ignored and reported) or corporate actions
+  (`ex_date,type,ratio,amount`). The API validates the file with the file
+  provider and the standard validator and shows a preview; only a validated
+  upload can be imported, by a worker job that writes it under a server-chosen
+  name (`SYMBOL.csv`, `SYMBOL_<freq>.csv`, `SYMBOL_actions.csv`) and then runs the
+  normal file-provider download. Client paths are never used.
+
+**Missing corporate actions.** When a symbol has no `SYMBOL_actions.csv`, the
+split- and total-return series equal the raw prices. The dataset list and the
+upload preview say so: dividends (and any splits) are not reflected, so total
+return may be understated. For example, a QQQ file with `date,open,high,low,
+close,volume,div,split` columns and no actions file imports correctly as a
+price series, but its `div` column is not used as dividend data — upload an
+actions file to include dividends.

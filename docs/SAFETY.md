@@ -17,7 +17,9 @@ Live trading is refused at startup unless **all six** of these are true
 5. Environment variable `AQ_LIVE_TRADING_CONFIRM=yes-trade-real-money` in the deployment.
 6. A real (non-simulated) broker provider; the broker adapter itself must report `is_live`, and a live adapter paired with a non-live mode (or vice-versa) is refused.
 
-No code path writes any of these values. If any is missing the process stops
+No code path writes any of these values — including the dashboard and the
+operator API, which have no route that sets live mode, `live_trading.*`,
+`live_approved` or any environment variable. If any is missing the process stops
 with a list of *every* missing item.
 
 ### Before you even consider live trading (checklist)
@@ -37,6 +39,27 @@ with a list of *every* missing item.
 - **Paper and shadow modes:** these require lifecycle ≥ `paper`.
 - **Shipped config:** it has no strategy eligible outside research.
 - **Failures:** a strategy that fails, isn't warmed up, or produces an out-of-range output blocks trading (`signal_failure`).
+
+## Control plane (dashboard and API)
+
+The dashboard can now start work and change operator-level settings, always
+through the API's explicit allowlist and always audited ([CONTROL_PLANE.md](CONTROL_PLANE.md)).
+The locked boundaries:
+
+| Boundary | Enforced by |
+|---|---|
+| No live mode | `ModeRequest.target` is `shadow`/`paper` only; the runtime overlay refuses `trading.mode` other than shadow/paper and any result that uses real money or enables live trading; `aq deploy check`, the loader policy and the broker factory still refuse live |
+| No live approval | the lifecycle request model excludes `live_approved`; the overlay refuses it; `with_lifecycle` refuses it |
+| Human promotions only | every lifecycle move from the UI is a `human` actor with a name, a justification of ≥ 20 characters for promotions and the phrase `APPROVE PROMOTION`, validated by `governance.lifecycle.transition` and written to the ledger |
+| Risk limits never loosen | risk settings are tighten-only against the reviewed YAML (`TIGHTEN RISK LIMITS`); cross-field risk validation still applies; drawdown bands and all other risk settings are locked |
+| Scheduler off by default | the deployment master gate `AQ_SCHEDULER_ENABLED` must be true **and** an operator must press Start (default stopped); the gate wins on every supervision round |
+| Kill switch independent | the scheduler switch never touches the kill switch; releasing it still needs `RE-ENABLE TRADING` |
+| Paper only with a verified paper account | shadow → paper needs a successful read-only Alpaca **paper** account verification (provider, paper host, credentials, authentication, paper account, broker/database reachability, kill-switch state) within the last hour and stopped automation |
+| Mode is not automation | selecting PAPER never starts automation, releases the kill switch or approves a strategy; starting paper automation needs the master gate, PAPER mode, a fresh verification and read-only pre-flight, the kill switch released, an approved strategy, fresh data, healthy reconciliation and no other scheduler |
+| PAPER → SHADOW fails closed | automation is stopped first; a transmit guard re-reads the persisted mode, automation switch and master gate before every order and refuses on any mismatch or error; the supervisor stops a scheduler whose mode no longer matches |
+| No secrets in the browser | the API never reads broker/provider/SMTP secrets; the dashboard sees only "configured: yes/no" |
+| No order placement from the API | the API cannot import brokers, the order manager or the trading cycle (static test); the worker's only broker call from a job is `get_account` (static test) |
+| Every action attributable | `control_events` (append-only) records accepted and refused requests with the operator's name |
 
 ## Kill switch
 
@@ -67,7 +90,9 @@ Every container runs `aq deploy check` before it starts and refuses to run if:
 - the broker endpoint is not Alpaca *paper*.
 
 Only one scheduler can run at a time (a PostgreSQL advisory lock), so an
-overlapping redeploy or an extra replica cannot trade twice.
+overlapping redeploy or an extra replica cannot trade twice. The scheduler runs
+inside `aq worker run` only while the master gate `AQ_SCHEDULER_ENABLED` is true
+and an operator has started it from Trading Control.
 
 ## Refusal conditions (pre-trade gate)
 

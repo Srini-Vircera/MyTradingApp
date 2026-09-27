@@ -6,7 +6,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Adaptive Quant — operator dashboard",
-  description: "Read-only views of the paper/shadow trading platform plus the kill switch.",
+  description: "Operator dashboard and control plane for the paper/shadow trading platform.",
   referrer: "no-referrer",
   robots: { index: false, follow: false },
 };

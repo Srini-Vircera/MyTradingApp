@@ -1,10 +1,15 @@
 import { expect, test } from "@playwright/test";
-import { BANNER, fixtures, mockApi, signIn, TOKEN } from "./mock-api";
+import { BANNER, fixtures, JOB_ID, mockApi, signIn, TOKEN } from "./mock-api";
 
 const PAGES: [string, string][] = [
   ["/", "Overview"],
   ["/portfolio/", "Portfolio"],
-  ["/strategies/", "Strategies"],
+  ["/strategies/", "Strategy Manager"],
+  ["/trading/", "Trading Control"],
+  ["/data/", "Data Manager"],
+  ["/research/", "Research"],
+  ["/jobs/", "Job Center"],
+  ["/settings/", "Settings"],
   ["/signals/", "Signals"],
   ["/risk/", "Risk"],
   ["/performance/", "Performance"],
@@ -37,7 +42,7 @@ test("asks for the token, then shows the PAPER banner on every page", async ({ p
   for (const [path, title] of PAGES) {
     await page.goto(path);
     await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
-    await expect(page.getByTestId("mode-banner")).toContainText("PAPER TRADING");
+    await expect(page.getByTestId("mode-banner")).toContainText("PAPER TRADING — SIMULATED FUNDS");
     await expect(page.getByRole("button", { name: "STOP AUTOMATED TRADING" })).toBeVisible();
     await expect(page.locator(".alert.critical")).toHaveCount(0);
   }
@@ -109,4 +114,51 @@ test("a rejected token returns to the sign-in screen", async ({ page }) => {
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByText("The API rejected the token. Enter it again.")).toBeVisible();
   expect(await page.evaluate(() => window.sessionStorage.length)).toBe(0);
+});
+
+test("live readiness is information only", async ({ page }) => {
+  await mockApi(page);
+  await signIn(page, "/live-readiness/");
+  await expect(page.getByRole("heading", { level: 1, name: "Live Trading Readiness" })).toBeVisible();
+  await expect(page.getByText(/Live trading: LOCKED/)).toBeVisible();
+  await expect(page.locator("main button")).toHaveCount(0);
+});
+
+test("a QQQ buy-and-hold backtest can be run from the browser", async ({ page }) => {
+  const rec = await mockApi(page);
+  await signIn(page, "/backtests/");
+  await expect(page.getByText(/HYPOTHETICAL/).first()).toBeVisible();
+  await page.getByLabel(/Your name/).first().fill("ann");
+  await page.getByRole("button", { name: "Run backtest" }).click();
+  await expect.poll(() => rec.posts.map((p) => p.path)).toEqual(["/api/v1/jobs/backtest"]);
+  expect(rec.posts[0]!.body).toMatchObject({ actor: "ann", params: { strategies: ["baseline_buy_hold"] } });
+  await expect(page.getByRole("img", { name: "Equity (hypothetical)" })).toBeVisible();
+  await expect(page.getByText("REAL DATA ONLY")).toBeVisible();
+  await expect(page.getByText(/No TQQQ\/SQQQ data was loaded/)).toBeVisible();
+  expect(JOB_ID).toHaveLength(32);
+});
+
+test("trading control separates mode, automation, kill switch and broker; paper needs verification", async ({ page }) => {
+  await mockApi(page);
+  await signIn(page, "/trading/");
+  await expect(page.getByText(/Real money: not possible/)).toBeVisible();
+  const status = page.getByLabel("Trading status");
+  for (const t of ["Mode", "Automation", "Kill switch", "Broker", "Strategies", "Master gate"]) {
+    await expect(status.getByText(t, { exact: true })).toBeVisible();
+  }
+  await expect(page.getByText("Automation unavailable — deployment scheduler master gate is OFF.").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: /live/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Start Shadow Trading…" })).toBeDisabled();
+  await expect(page.getByLabel("Readiness to start shadow trading")).toContainText("✗");
+  await page.getByRole("radio", { name: /Paper/ }).click();
+  await expect(page.getByText("has not been verified yet")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Switch to PAPER trading…" })).toBeDisabled();
+});
+
+test("settings show the Trading Mode selector without a live option", async ({ page }) => {
+  await mockApi(page);
+  await signIn(page, "/settings/");
+  const trading = page.getByLabel("Trading Mode", { exact: true });
+  await expect(trading.getByRole("radio")).toHaveCount(2);
+  await expect(trading.getByText("Live Trading: LOCKED / NOT AVAILABLE.")).toBeVisible();
 });

@@ -72,6 +72,28 @@ Shadow mode runs the identical pipeline and planner; the only difference is
 the final `submit_order` call is replaced by persistence of what *would* have
 been sent. Paper and shadow can run side by side (different environments).
 
+## Operating from the dashboard (control plane)
+
+Trading mode (SHADOW/PAPER), automation (STOPPED/RUNNING), the kill switch
+(ENGAGED/RELEASED) and the deployment master gate `AQ_SCHEDULER_ENABLED` are separate
+controls; see [CONTROL_PLANE.md](CONTROL_PLANE.md#trading-mode-automation-kill-switch-and-the-master-gate).
+No PowerShell, SSH or YAML editing is needed for normal operation:
+
+1. **Approve a strategy for paper**: Strategy Manager → *Advance to paper*
+   (justification + `APPROVE PROMOTION`). Selecting PAPER mode never does this.
+2. **Select PAPER**: Settings → Trading (or Trading Control) → Trading Mode → Paper →
+   *Verify Alpaca paper account (read-only)* → *Switch to PAPER trading…* (type
+   `Switch to PAPER trading`). Automation stays stopped and the kill switch unchanged.
+3. **Review readiness** on Trading Control (✓/✗ with what to do).
+4. **Release the kill switch** when appropriate (`RE-ENABLE TRADING`).
+5. **Start Paper Trading** (`START PAPER TRADING`), then monitor.
+6. **Stop Paper Trading** at any time (always accepted; no order is transmitted after
+   it). *Switch to SHADOW mode* also stops automation first.
+
+Paper mode is labelled **PAPER TRADING — SIMULATED FUNDS** everywhere. The immutable
+trail is `control_events` + `runtime_config_changes` + `kill_switch_events` + the
+cycle/order tables.
+
 ## Paper vs. backtest report (M13)
 
 For each paper session: backtest the same config over the same day(s) and

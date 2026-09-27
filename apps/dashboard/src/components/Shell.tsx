@@ -11,16 +11,22 @@ import { TokenGate } from "./TokenGate";
 
 export const NAV = [
   ["/", "Overview"],
+  ["/trading/", "Trading Control"],
   ["/portfolio/", "Portfolio"],
-  ["/strategies/", "Strategies"],
   ["/signals/", "Signals"],
   ["/risk/", "Risk"],
   ["/performance/", "Performance"],
-  ["/backtests/", "Backtests"],
   ["/orders/", "Orders"],
   ["/executions/", "Executions"],
+  ["/data/", "Data"],
+  ["/backtests/", "Backtests"],
+  ["/research/", "Research"],
+  ["/strategies/", "Strategies"],
+  ["/jobs/", "Jobs"],
+  ["/settings/", "Settings"],
   ["/system/", "System Health"],
   ["/configuration/", "Configuration"],
+  ["/live-readiness/", "Live Readiness"],
 ] as const;
 
 interface ShellState {
@@ -79,7 +85,8 @@ function Frame({ children }: { children: ReactNode }) {
       <footer className="notice">
         {banner?.notice ??
           "Paper/simulated results and backtests are hypothetical and are not a prediction of future returns."}{" "}
-        This dashboard cannot change the trading mode, place orders or promote strategies.
+        This dashboard cannot place an order itself, enable live trading, approve a strategy for
+        live trading or change deployment secrets.
       </footer>
     </ShellContext.Provider>
   );

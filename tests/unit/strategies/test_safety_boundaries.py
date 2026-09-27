@@ -111,3 +111,74 @@ def test_api_cannot_reach_brokers_orders_or_the_trading_cycle(path: Path) -> Non
     text = path.read_text()
     for token in ("submit_order", "cancel_order", "trading.mode =", 'model_copy(update={"trading"'):
         assert token not in text, f"{path.name} references {token}"
+
+
+CONTROL = [
+    *sorted((SRC / "services").rglob("*.py")),
+    *sorted((SRC / "control").rglob("*.py")),
+    SRC / "config" / "runtime.py",
+    SRC / "persistence" / "control.py",
+]
+
+
+@pytest.mark.parametrize("path", CONTROL, ids=lambda p: str(p.relative_to(SRC)))
+def test_control_plane_services_cannot_trade_or_run_commands(path: Path) -> None:
+    forbidden = ("adaptive_quant.trading", "subprocess", "httpx", "requests", "socket")
+    bad = {m for m in imports(path) if m.startswith(forbidden)}
+    assert not bad, f"{path.name} imports {bad}"
+    text = path.read_text()
+    for token in ("submit_order", "cancel_order", "os.system", "shell=True", "eval(", "exec("):
+        assert token not in text, f"{path.name} references {token}"
+
+
+def test_worker_jobs_reach_the_broker_only_for_a_read_only_account_check() -> None:
+    handlers = SRC / "worker" / "handlers.py"
+    tree = ast.parse(handlers.read_text())
+    trading_imports: dict[str, set[str]] = {}
+    for fn in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
+        for node in ast.walk(fn):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
+                "adaptive_quant.trading"
+            ):
+                trading_imports.setdefault(fn.name, set()).add(node.module or "")
+    # only the read-only paper-account verification / pre-flight job touches trading code,
+    # and only the factory (paper adapter only), the constant host, and read-only checks
+    assert trading_imports == {
+        "_broker_verify": {
+            "adaptive_quant.trading.brokers.alpaca",
+            "adaptive_quant.trading.brokers.factory",
+            "adaptive_quant.trading.safety.broker_checks",
+            "adaptive_quant.trading.safety.db_checks",
+            "adaptive_quant.trading.safety.kill_switch_store",
+        }
+    }
+    top = {m for m in imports(handlers) if m.startswith("adaptive_quant.trading")}
+    assert top == trading_imports["_broker_verify"]  # only the lazy, local imports
+    calls = {
+        n.func.attr
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+        and isinstance(n.func.value, ast.Name) and n.func.value.id == "broker"
+    }  # fmt: skip
+    assert calls == {"get_account"}
+    for path in (SRC / "worker").rglob("*.py"):
+        text = path.read_text()
+        for token in ("submit_order", "cancel_order", "subprocess", "os.system"):
+            assert token not in text, f"{path.name} references {token}"
+
+
+def test_api_paper_host_matches_the_broker_adapter() -> None:
+    from adaptive_quant.api.control import PAPER_HOST as API_HOST
+    from adaptive_quant.trading.brokers.alpaca import PAPER_HOST
+
+    assert API_HOST == PAPER_HOST == "paper-api.alpaca.markets"
+
+
+def test_no_ui_path_can_grant_live_approved() -> None:
+    from typing import get_args
+
+    from adaptive_quant.api.control import LifecycleRequest
+    from adaptive_quant.config.runtime import UI_LIFECYCLES
+
+    targets = get_args(LifecycleRequest.model_fields["target"].annotation)
+    assert "live_approved" not in targets and "live_approved" not in UI_LIFECYCLES

@@ -20,11 +20,17 @@ non-terminal intent: found at the broker -> adopt; confirmed absent -> CANCELLED
 
 Shadow mode never calls ``submit_order``: it records ``shadow_orders`` only.
 Live trading is not enabled in this version.
+
+An optional ``transmit_guard`` is asked immediately before every transmission;
+any reason it returns (or any error it raises) halts execution before the
+intent is created. The control-plane worker uses it so that switching the
+runtime mode back to shadow, or stopping automation, stops paper orders at once
+(fail closed), even in the middle of a cycle step.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 
@@ -76,6 +82,7 @@ class OrderManager:
         cycles: CycleRepository,
         clock: Clock,
         mode: TradingMode,
+        transmit_guard: Callable[[], str | None] | None = None,
     ) -> None:
         if mode is TradingMode.BACKTEST:
             raise SafetyViolation("the order manager is not used in backtest mode")
@@ -90,6 +97,7 @@ class OrderManager:
         self.cycles = cycles
         self.clock = clock
         self.mode = mode
+        self.transmit_guard = transmit_guard
 
     # ------------------------------------------------------------------ execution
     def execute(
@@ -112,6 +120,10 @@ class OrderManager:
                     _outcome(req, "shadow", "recorded; not transmitted (shadow mode)")
                 )
                 continue
+            blocked = self._guard()
+            if blocked is not None:
+                report.halted = f"transmission blocked: {blocked}"
+                return report
             outcome = self._execute_one(cycle_id, req, plan.expected_prices.get(req.symbol))
             if outcome is None:
                 report.halted = f"database unavailable before transmitting {req.client_order_id}"
@@ -119,6 +131,14 @@ class OrderManager:
             report.outcomes.append(outcome)
             report.transmitted += 1  # a transmission was attempted (whatever its outcome)
         return report
+
+    def _guard(self) -> str | None:
+        if self.transmit_guard is None:
+            return None
+        try:
+            return self.transmit_guard()
+        except Exception as exc:  # noqa: BLE001 - an unreadable guard blocks (fail closed)
+            return f"transmit guard failed: {type(exc).__name__}"
 
     def _execute_one(
         self, cycle_id: str, req: OrderRequest, expected: Decimal | None

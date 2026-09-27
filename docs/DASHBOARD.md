@@ -1,45 +1,58 @@
-# Operator dashboard (Milestone 12)
+# Operator dashboard (Milestone 12, control plane in PR #4)
 
 A Next.js + TypeScript app in `apps/dashboard`. It is a **static export**:
 plain HTML/JS served by any web server, running entirely in the browser and
 talking only to the operator API (`docs/API.md`). There is no dashboard
 server, so nothing holds the operator token except the operator's browser tab,
-and nothing in the dashboard can reach a broker.
+and nothing in the dashboa## What it can and cannot do
 
-## What it can and cannot do
-
-| Can | Cannot |
+| Can (audited, through the API allowlist) | Cannot |
 |---|---|
-| Show every read endpoint of the API | Change the trading mode (paper/shadow/live) |
-| Engage the kill switch (STOP AUTOMATED TRADING) | Edit configuration |
-| Release the kill switch (typed `RE-ENABLE TRADING`) | Place, change or cancel orders |
-| | Promote or approve strategies |
+| Show every read endpoint of the API | Place, change or cancel an order directly |
+| Engage / release the kill switch (typed phrases) | Enable live trading or select live mode |
+| Queue worker jobs: data download/validate/synthetic/inventory, backtests, research, a read-only broker check | Grant `live_approved` (reviewed repository change only) |
+| Upload a CSV, review the validation preview, import or discard it | Edit strategy code or formulas |
+| Change strategy parameters (research/disabled only), enable/disable, lifecycle up to `shadow` | Change or see deployment secrets or Railway variables |
+| Change runtime settings (risk limits tighten-only) | Turn on the scheduler master gate `AQ_SCHEDULER_ENABLED` |
+| Start/stop the shadow or paper scheduler; switch shadow ↔ paper | Loosen a risk limit |
 
-Its only writes are the API's only writes: the two kill-switch actions. Both
-need a named operator, a reason and the exact confirmation phrase; the button
-stays disabled until the phrase matches exactly, and the API checks it again.
-If the API is unreachable, use `aq kill-switch engage` on the server.
+Every write goes through `mutate()` / `uploadCsv()` / `killSwitch()` in
+`src/lib/api.ts`. `mutate()` accepts only the paths in `MUTATIONS`, which a test
+compares with the API's allowlist in the OpenAPI schema. Routine actions need the
+operator's name (recorded in the audit trail); dangerous ones also need a reason
+and an exact typed phrase, with the button disabled until it matches (the API
+checks it again): `START SHADOW TRADING`, `START PAPER TRADING`,
+`Switch to PAPER trading`, `Switch to SHADOW mode`, `TIGHTEN RISK LIMITS`,
+`APPROVE PROMOTION`, and the kill-switch phrases. If the API is unreachable, use
+`aq kill-switch engage` on the server.
 
 ## Pages
 
 | Page | Content |
 |---|---|
 | Overview | kill switch, equity/return/drawdown, open orders, last reconciliation, latest cycle and its steps, today's schedule (early closes), target weights, equity chart |
+| Trading Control | separate status for **Mode** (SHADOW/PAPER), **Automation** (STOPPED/RUNNING), **Kill switch** (ENGAGED/RELEASED), **Broker** (ALPACA PAPER / NOT CONFIGURED / UNAVAILABLE), **Strategies** eligible for the mode and the **master gate**; the Trading Mode selector with the paper-account verification; the ✓/✗ readiness checklist with what to do; Start/Stop Paper (or Shadow) Trading; "real money: not possible"; kill switch |
 | Portfolio | account (paper vs real-money badge), broker vs expected positions with a match check, target weights |
-| Strategies | catalogue with lifecycle and eligible modes, approvals, lifecycle history |
 | Signals | heatmap of normalised scores (strategy × cycle), latest signals |
 | Risk | band, drawdown, vol scale, regime, block state, flags; allocation over time; band history; drawdown; adjustments; limits |
 | Performance | equity, drawdown, daily returns, daily table |
-| Backtests | stored backtest summaries (CAGR, Sharpe, max drawdown…) and research runs |
-| Orders | order intents with state and broker events (UNKNOWN highlighted), shadow orders, reconciliation |
-| Executions | fills with expected price and slippage |
+| Orders / Executions | order intents with state and broker events, shadow orders, reconciliation; fills with slippage |
+| Data | dataset list (symbol, source, frequency, adjustment, dates, rows, validation, freshness, warnings; REAL vs **SYNTHETIC** labels), CSV upload with preview, download/update, validate, refresh, synthetic history (with the calibration warning), data jobs |
+| Backtests | new-backtest form (strategies from the catalogue, source, dates, capital, execution timing and delay, synthetic on/off, costs; defaults from the configuration), runs, result with a prominent **hypothetical** disclaimer, headline metrics, equity and drawdown charts, benchmark comparison, real/synthetic data label; report files from the CLI |
+| Research | launch form, runs, ranked scorecards with every gate; never promotes |
+| Strategies | Strategy Manager: catalogue with ✓/✗ participation in **Research / Shadow / Paper**, parameters (schema-generated form), grid, warm-up, enabled vs eligibility, lifecycle moves with justification, latest research/backtest evidence, lifecycle history |
+| Jobs | Job Center: all jobs with status filter, progress, logs, cancel, run again (repeatable jobs only) |
+| Settings | **Trading → Trading Mode** (Shadow / Paper with explanations, the active mode, "Live Trading: LOCKED / NOT AVAILABLE"; the same guarded workflow as Trading Control); settings by category (Data, Backtesting, Research, Strategies, Risk, Trading, Broker, Notifications, System), each marked editable / tighten-only / needs redeploy / secret / locked; secrets only as "configured yes/no"; change history |
 | System Health | version, database/migrations, kill switch (with release flow), recent cycles, errors, notifications |
-| Configuration | trading-mode lock, warnings, redacted resolved settings (read-only) |
+| Configuration | trading-mode lock, warnings, the reviewed (YAML) settings, redacted |
+| Live Readiness | information only: every live-trading prerequisite and why it is not met; no controls |
 | Explain | the stored decision chain of one cycle (linked from Overview and System Health) |
 
-Every page shows the **mode banner** (amber PAPER, blue SHADOW, red
-LIVE — REAL MONEY; a missing or unrecognised mode is shown in red as
-unknown), the kill-switch state and the STOP button. It also carries the
+w and System Health) |
+
+Every page shows the **mode banner** — amber **PAPER TRADING — SIMULATED FUNDS**, blue **SHADOW MODE — NO ORDERS SENT**, red
+LIVE — REAL MONEY (not reachable in this deployment); a missing or unrecognised mode is
+shown in red as unknown — plus the kill-switch state and the STOP button. It also carries the
 notice that paper, simulated and backtest results are hypothetical.
 
 Charts are dependency-free SVG. Each has a hover tooltip and a data-table
@@ -73,9 +86,14 @@ npm run typecheck && npm test && npm run test:e2e
   - API client: bearer header, the token never in the URL, 401/503 handling.
   - Kill-switch dialogs: the exact phrase, cancel, refusal.
   - Mode banner, token storage, chart edge cases, data transforms.
-  - A static safety suite: network calls only from `src/lib/api.ts`; POST only for the kill switch; every API path exists in the schema; no persistent token storage; no mode, order or promotion controls.
+  - Control-plane client: allowlisted paths only, encoded path parameters, raw CSV uploads with a size cap.
+  - Pages: the backtest form (validation, the queued request, the disclaimer), the data page's REAL/SYNTHETIC labels and warnings, the Strategy Manager offering no live approval, Live Readiness without controls.
+  - A static safety suite: network calls only from `src/lib/api.ts`; writes equal to the API's allowlist (POST only); no live-mode or live-approval request anywhere; no secret names; every API path exists in the schema; no persistent token storage; no live-trading or order controls.
 - **End-to-end tests (Playwright):** run against the built export with a fully mocked API:
-  - every page, with the PAPER banner and only GET requests;
+  - every page, with the PAPER banner and only GET requests while browsing;
+  - running a QQQ `baseline_buy_hold` backtest from the browser and seeing its result;
+  - Trading Control (real money not possible, no live control, paper needs the phrase);
+  - Live Readiness (information only);
   - the charts;
   - the STOP flow;
   - the LIVE banner;

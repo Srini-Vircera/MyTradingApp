@@ -22,6 +22,7 @@ from adaptive_quant import (
     cli_research,
     cli_strategies,
     cli_trade,
+    cli_worker,
 )
 from adaptive_quant.config.loader import LoadedConfig, load_config
 from adaptive_quant.config.schema import redact
@@ -86,6 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
     cli_trade.register(sub)
     cli_api.register(sub)
     cli_deploy.register(sub)
+    cli_worker.register(sub)
     return parser
 
 
@@ -107,7 +109,11 @@ def _dispatch(args: argparse.Namespace, clock: Clock) -> int:
     loaded = load_config(args.env, config_dir=args.config_dir, secrets=secrets)
     # long-running services log in the configured format (JSON in paper/production);
     # interactive commands stay human-readable
-    service = (args.command, getattr(args, "action", None)) in {("api", "serve"), ("trade", "run")}
+    service = (args.command, getattr(args, "action", None)) in {
+        ("api", "serve"),
+        ("trade", "run"),
+        ("worker", "run"),
+    }
     configure_logging(
         loaded.settings.logging.level,
         fmt=loaded.settings.logging.format if service else "console",
@@ -133,6 +139,8 @@ def _dispatch(args: argparse.Namespace, clock: Clock) -> int:
         return cli_db.run(args, loaded, secrets, clock)
     if args.command == "deploy":
         return cli_deploy.run(args, loaded, secrets)
+    if args.command == "worker":
+        return cli_worker.run(args, loaded, secrets, clock)
     if args.command == "trade":
         return cli_trade.run(args, loaded, secrets, clock)
     if args.command == "api":

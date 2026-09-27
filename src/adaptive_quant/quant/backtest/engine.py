@@ -75,6 +75,10 @@ class EngineSettings:
     allow_fractional: bool
     risk_limits: RiskConfig | None
     ensemble: EnsembleConfig | None = None  # M7 decision chain (default config if None)
+    #: tradeable instruments that may lack price data because the strategies provably
+    #: never hold them (e.g. TQQQ/SQQQ for a long-only, <= 1x QQQ benchmark). Any
+    #: non-zero target weight on such an instrument aborts the backtest.
+    unpriced_instruments: frozenset[str] = frozenset()
 
 
 @dataclass
@@ -161,6 +165,10 @@ class BacktestEngine:
             settings.risk_limits if self.cfg.allocation.apply_risk_limits else None,
         )
         self.tradeable = self.allocator.symbols
+        self.unpriced = frozenset(
+            s for s in self.tradeable if s not in self.frames and s in settings.unpriced_instruments
+        )
+        self.priced = [s for s in self.tradeable if s not in self.unpriced]
         self.manager: PortfolioManager | None = None
         a = self.cfg.allocation
         if settings.risk_limits is not None and a.apply_risk_limits and a.risk_engine:
@@ -273,7 +281,7 @@ class BacktestEngine:
         """Per tradeable symbol: open/close/volume aligned to the backtest sessions."""
         table: dict[str, pd.DataFrame] = {}
         closes = pd.DatetimeIndex([s.close for s in sessions])
-        for sym in self.tradeable:
+        for sym in self.priced:
             if sym not in self.frames:
                 raise DataQualityError(f"no price data for tradeable instrument {sym}")
             df = self.frames[sym]
@@ -324,7 +332,7 @@ class BacktestEngine:
         data_ts = max(sig.data_timestamp for sig in signals)
         if data_ts > decision_time:  # defence in depth (StrategySignal also enforces it)
             raise LookAheadError(f"signal data {data_ts} after decision {decision_time}")
-        known = {sym: self._known_close(sym, decision_time) for sym in self.tradeable}
+        known = {sym: self._known_close(sym, decision_time) for sym in self.priced}
         prices = {sym: p for sym, (p, _) in known.items()}
         for sym, (_, ts) in known.items():
             if ts > decision_time:
@@ -365,7 +373,14 @@ class BacktestEngine:
         investable = equity * (1 - to_decimal(self.cfg.sizing_cash_buffer))
         threshold = to_decimal(self.settings.rebalance_threshold)
         order_ids: list[int] = []
-        for sym in self.tradeable:
+        for sym in self.unpriced:
+            if allocation.weights.get(sym, Decimal(0)) != 0:
+                raise DataQualityError(
+                    f"the allocation holds {sym} on {sessions[i].date} but no {sym} price data "
+                    "is loaded",
+                    hint=f"load {sym} data (or synthetic history) to backtest these strategies",
+                )
+        for sym in self.priced:
             pend = sum(
                 (
                     o.quantity if o.side is OrderSide.BUY else -o.quantity
@@ -434,8 +449,8 @@ class BacktestEngine:
             raise LookAheadError("underlying history beyond the decision time")
         self.shadow.record(data_ts, {s.strategy_name: s.suggested_exposure for s in signals})
         eq = float(equity)
-        current: dict[str, float] = {}
-        for sym in self.tradeable:
+        current: dict[str, float] = dict.fromkeys(self.unpriced, 0.0)
+        for sym in self.priced:
             qty = portfolio.quantity(sym) + sum(
                 (
                     o.quantity if o.side is OrderSide.BUY else -o.quantity
@@ -592,12 +607,13 @@ class BacktestEngine:
         portfolio: Portfolio,
         fills_from: int,
     ) -> dict[str, object]:
-        prices = {sym: _px(float(px[sym]["close"].iloc[i])) for sym in self.tradeable}
+        prices = {sym: _px(float(px[sym]["close"].iloc[i])) for sym in self.priced}
         gap = portfolio.identity_gap(prices)
         if gap != 0:
             raise AQError(f"accounting identity violated by {gap} on {session.date}")
         equity = portfolio.equity(prices)
-        values = {sym: portfolio.quantity(sym) * prices[sym] for sym in self.tradeable}
+        values = {sym: portfolio.quantity(sym) * prices[sym] for sym in self.priced}
+        values.update(dict.fromkeys(self.unpriced, Decimal(0)))
         weights = {sym: (v / equity if equity > 0 else Decimal(0)) for sym, v in values.items()}
         todays = portfolio.fills[fills_from:]
         traded = sum((f.notional for f in todays), Decimal(0))

@@ -29,11 +29,12 @@ runs `aq deploy check` before starting and refuses to run if:
                           └────────┬─────────┘
                                    │ postgres.railway.internal:5432
  ┌──────────────────────┐   ┌──────▼─────────┐
- │ worker               ├──►│ PostgreSQL     │  audit trail + shared kill switch
- │ scheduler (optional) │   │ (Railway)      │  volume backups
- │ research / backtests │   └────────────────┘
- │ volume: /app/var     │
- └──────────────────────┘
+ │ worker (aq worker run)├─►│ PostgreSQL     │  audit trail, shared kill switch,
+ │ jobs: data, backtests,│  │ (Railway)      │  job queue, uploads, results,
+ │  research, broker chk │  └────────────────┘  runtime settings, control state
+ │ scheduler (gated)     │
+ │ volume: /app/var      │
+ └───────────────────────┘
 ```
 
 | Service | Image | Public? | Disk | Health check | Replicas |
@@ -47,13 +48,15 @@ runs `aq deploy check` before starting and refuses to run if:
 - **Single origin.**
   - The browser only talks to the dashboard's HTTPS origin. Caddy serves the static dashboard and forwards `/api/v1/*` to the API over Railway's private network.
   - The API therefore has no public address, and no CORS is needed.
-  - Caddy adds HSTS, a strict Content-Security-Policy (`connect-src 'self'`, `frame-ancestors 'none'`) and the other security headers, redirects plain HTTP to HTTPS, and caps request bodies at 64 KB.
+  - Caddy adds HSTS, a strict Content-Security-Policy (`connect-src 'self'`, `frame-ancestors 'none'`) and the other security headers, redirects plain HTTP to HTTPS, and caps request bodies at 64 KB — except `POST /api/v1/data/uploads` (CSV uploads), which allows 26 MB; the API itself enforces 25 MiB.
 - **Shared kill switch.**
   - The API and the worker are separate containers, so the kill switch lives in PostgreSQL (`trading.kill_switch.store: database` in `config/production.yaml`).
   - STOP in the dashboard is seen by the worker's next check.
   - If the database cannot be read, the switch counts as **engaged** (fail closed).
 - **One scheduler, ever.** The worker takes a PostgreSQL advisory lock before running the trading cycle. A second instance, such as a duplicate replica or an overlapping redeploy, waits up to 2 minutes and then refuses to start.
 - **Only the worker keeps files** (`/app/var`): market data, backtest and research reports, and logs. Everything else is in PostgreSQL.
+- **The browser controls the worker through PostgreSQL** ([CONTROL_PLANE.md](CONTROL_PLANE.md)). The API validates a request and queues a job row; the worker claims it, runs the shared service, and stores the result (dataset list, backtest summaries with the equity curve, research scorecards) back in PostgreSQL for the dashboard. CSV uploads are stored in PostgreSQL by the API and written to `/app/var` by the worker. No long task runs inside an HTTP request, and the API never needs the volume.
+- **Two switches for the scheduler.** It runs only when `AQ_SCHEDULER_ENABLED=true` on the worker (the deployment master gate) **and** an operator has started it on the Trading Control page (audited; default stopped). Either one stops it.
 
 ## Files
 
@@ -92,9 +95,9 @@ Everything not listed here is in the repository.
    | api | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` |
    | api | `AQ_API_TOKEN` | a new random value of at least 32 characters, e.g. `openssl rand -hex 32`. **Sealed.** |
    | worker | `AQ_ROLE` | `worker` |
-   | worker | `AQ_SCHEDULER_ENABLED` | `false` at first ([Runbook](#runbook)) |
+   | worker | `AQ_SCHEDULER_ENABLED` | `false` at first ([Runbook](#runbook)). The master gate: while `false` the scheduler never runs, whatever the dashboard says |
    | worker | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` |
-   | worker | `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY` | **Alpaca paper account keys only.** Sealed. Needed for data downloads and the scheduler |
+   | worker | `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY` | **Alpaca paper account keys only.** Sealed. Needed for Alpaca data downloads, the broker check and the scheduler. Only the worker has them; the API and the browser never do |
    | worker | `POLYGON_API_KEY` | optional (if you use Polygon data). Sealed |
    | worker | `SMTP_USERNAME`, `SMTP_PASSWORD` | optional (email notifications, with `notifications.email` in YAML). Sealed |
    | dashboard | `PORT` | `8080` |
@@ -115,7 +118,7 @@ Everything not listed here is in the repository.
   - The `api` service's pre-deploy command, `aq db upgrade`, applies Alembic migrations and records the configuration version and strategy versions.
   - If it fails, the new deployment does not go live.
   - Only the API runs migrations.
-  - Migrations are forward-only in production. A rollback to an older image works while the schema change is additive (all migrations so far are).
+  - Migrations are forward-only in production. A rollback to an older image works while the schema change is additive (all migrations so far are, including `0004_control_plane`).
 - **Health checks.**
   - The API's `/api/v1/health/ready` returns 200 only when the database is reachable **and** at the head revision. There is no authentication and no detail in the response.
   - The dashboard's `/healthz` is Caddy itself.
@@ -159,35 +162,52 @@ Everything not listed here is in the repository.
 
 **First deploy (research and backtesting only)**
 1. Configure Railway as [above](#what-you-configure-in-railway), with `AQ_SCHEDULER_ENABLED=false`.
-2. Deploy. The API migrates the database. The worker passes its checks and stays idle.
+2. Deploy. The API migrates the database. The worker passes its checks, publishes the dataset list and waits for jobs (log line `worker: master gate OFF … jobs only`).
 3. Open the dashboard domain and enter `AQ_API_TOKEN`. The banner shows **SHADOW MODE**. The kill switch shows **engaged** (fresh installation).
-4. Run jobs in a shell on the worker (`railway ssh --service worker`), always through `aq-job` so files belong to the app user:
-   ```bash
-   aq-job data download ...
-   aq-job backtest run ...
-   aq-job research run ...
-   aq-job kill-switch status
-   ```
-   Reports are written under `/app/var` on the worker volume.
+4. Work from the browser:
+   - **Data**: upload a CSV (preview → Import) or queue a download; check validation and freshness. Without a `SYMBOL_actions.csv` the page warns that dividends are not included.
+   - **Backtests**: choose strategies (e.g. `baseline_buy_hold`), dates, capital and costs → Run backtest. The result (metrics, equity and drawdown charts, benchmark comparison) appears when the worker finishes.
+   - **Research**: start a run; scorecards appear in the page.
+   - **Jobs**: every job, its progress and log.
+
+   A shell is still available for administration: `railway ssh --service worker`, then `aq-job <command>` (e.g. `aq-job data download …`, `aq-job kill-switch status`).
 
 **Shadow mode (orders computed and recorded, never sent)**
-1. A person promotes strategies in `config/strategies.yaml` through a reviewed pull request. Software never does this.
-2. Set `AQ_SCHEDULER_ENABLED=true` on `worker`, with the Alpaca **paper** keys. The worker restarts and runs `aq trade run`.
-3. Release the kill switch from the dashboard (System Health → Re-enable trading…) once reconciliation and health look right.
+1. A person reviews the evidence and moves at least one strategy to `paper` (or `shadow`) in the **Strategy Manager** (justification + `APPROVE PROMOTION`; recorded in the governance ledger). Live approval is never available there.
+2. Set `AQ_SCHEDULER_ENABLED=true` on `worker` (a deliberate deployment change) with the Alpaca **paper** keys. The worker restarts; the scheduler still does not run.
+3. On **Trading Control**, press *Start Shadow Trading…* and type `START SHADOW TRADING`. The worker starts the cycle within ~15 s after its own checks (eligible strategies, database, single-scheduler lock).
+4. Release the kill switch (System Health or Trading Control → Re-enable trading…) once reconciliation and health look right.
 
-**Moving to Alpaca paper trading (later)**
-1. Complete the paper-readiness review.
-2. Change `trading.mode: shadow` to `paper` in `config/production.yaml` through a reviewed pull request.
-3. Deploy. Nothing else changes: same keys (paper), same checks. Live remains impossible.
+**Moving to Alpaca paper trading (simulated funds) — all from the browser**
+1. Complete the paper-readiness review ([PAPER_TRADING.md](PAPER_TRADING.md)) and approve at least one strategy for paper in the Strategy Manager.
+2. Settings → Trading (or Trading Control) → **Trading Mode: Paper** → *Verify Alpaca paper account (read-only)*. The worker checks the provider, the paper endpoint, the credentials, authentication, that the account is a paper account, broker and database reachability, the kill-switch state, stored market data and reconciliation. It only reads.
+3. *Switch to PAPER trading…* and type `Switch to PAPER trading` (refused, with the reasons shown, unless the verification passed within the last hour and automation is stopped). The banner turns amber **PAPER TRADING — SIMULATED FUNDS**. Automation stays stopped and the kill switch unchanged.
+4. Review the readiness checklist on Trading Control, release the kill switch when appropriate, then **Start Paper Trading** (`START PAPER TRADING`). Live remains impossible: there is no live broker adapter, and live mode is refused by the configuration overlay, `aq deploy check` and the broker factory.
+
+**What still needs Railway configuration (one time, deliberately):** the Alpaca paper keys on the worker (`ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY`), and `AQ_SCHEDULER_ENABLED=true` on the worker to allow automation at all. Everything else — data, backtests, research, strategy approval, mode, verification, kill switch, start/stop — is done in the dashboard.
 
 **Stop trading immediately**
 - In the dashboard: STOP AUTOMATED TRADING.
 - If the dashboard is down: in a worker shell, run `aq-job kill-switch engage --actor NAME --reason TEXT`.
-- Last resort: set `AQ_SCHEDULER_ENABLED=false` or remove the worker deployment.
+- Stop the scheduler on Trading Control (never rate limited). Engaging the kill switch as well blocks new risk immediately.
+- Last resort: set `AQ_SCHEDULER_ENABLED=false` (the worker stops the scheduler on its next round, and it cannot be restarted from the UI) or remove the worker deployment.
 
 **Rotate the API token:** change `AQ_API_TOKEN` on `api` and redeploy it. Open dashboard tabs are signed out on their next request.
 
 **Roll back:** redeploy the previous successful deployment of the service from Railway's deployment list. The start-up checks and the scheduler lock still apply.
+
+**Upgrading to the control plane (PR #4) — one-time steps**
+1. Merge; Railway rebuilds `api`, `worker` and `dashboard`.
+2. `api`'s pre-deploy command applies migration `0004_control_plane` (new tables only: `control_jobs`, `control_job_logs`, `data_uploads`, `dataset_inventory`, `backtest_runs`, `runtime_config`, `runtime_config_changes`, `control_state`, `control_events`, `worker_heartbeats`; append-only and terminal-state triggers). No existing table changes.
+3. The worker now starts `aq worker run` instead of `aq trade run`/idle. No variable changes are needed: `AQ_SCHEDULER_ENABLED` keeps meaning "the scheduler may run", and the new operator switch starts **stopped** — so a worker that previously ran the scheduler with `AQ_SCHEDULER_ENABLED=true` will **not** trade until someone presses Start on Trading Control. This is intentional.
+4. Check: `/api/v1/health/ready` is 200; the dashboard shows the new pages; Jobs shows *worker online*; Data lists the existing datasets (the worker publishes them at start).
+
+**Rolling back the control plane**
+1. Redeploy the previous `api`, `worker` and `dashboard` deployments. The old code ignores the new tables, so the database does not need to change; the worker falls back to `aq trade run` gated by `AQ_SCHEDULER_ENABLED` alone.
+2. Before rolling back the worker, stop the scheduler on Trading Control (or set `AQ_SCHEDULER_ENABLED=false`) if you do not want the old worker to start trading immediately.
+3. Only if the tables must be removed (normally unnecessary): take a backup, then in a worker shell run
+   `python -c 'import os; from adaptive_quant.persistence import migrate; from adaptive_quant.persistence.db import Database; migrate.downgrade(Database(os.environ["DATABASE_URL"]), "0003")'`.
+   It drops only the control-plane tables (their history is lost). The migration's downgrade is covered by the migration round-trip test.
 
 ## Troubleshooting
 
@@ -223,6 +243,7 @@ open http://localhost:8080
 
 ## Known limitations
 
-- **Backtests page is empty on Railway.** The dashboard's Backtests page lists report directories visible to the API container, and the API has no volume. Use `aq-job` on the worker and download reports from there. Storing report summaries in the database is a follow-up.
+- **Full HTML reports stay on the worker volume.** Runs started from the dashboard store their summary, metrics and equity curve in PostgreSQL; the full HTML report is written under `/app/var/reports` on the worker. Runs started with `aq-job backtest run` in a shell are not listed in the database.
+- **Settings apply to the next job.** A running scheduler keeps the configuration it started with; Trading Control shows when a stop/start is needed.
 - **Restart the worker after a database restart.** A database restart cuts the scheduler's lock connection, and the lock is not re-taken until the worker restarts. With exactly one worker nothing competes for it in the meantime.
 - **The paper-vs-backtest report is not built yet.** It needs recorded paper trading history, so it follows once paper trading runs.

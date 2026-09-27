@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/v1/audit/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Audit Events */
+        get: operations["audit_events_api_v1_audit_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/backtests": {
         parameters: {
             query?: never;
@@ -21,6 +38,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/backtests/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Backtest Options */
+        get: operations["backtest_options_api_v1_backtests_options_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/backtests/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Backtest Runs */
+        get: operations["backtest_runs_api_v1_backtests_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/backtests/runs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Backtest Run */
+        get: operations["backtest_run_api_v1_backtests_runs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/configuration": {
         parameters: {
             query?: never;
@@ -30,7 +98,7 @@ export interface paths {
         };
         /**
          * Configuration
-         * @description The resolved configuration, redacted. Read-only: there is no way to change it here.
+         * @description The reviewed YAML configuration, redacted (runtime changes: ``/settings``).
          */
         get: operations["configuration_api_v1_configuration_get"];
         put?: never;
@@ -72,6 +140,109 @@ export interface paths {
         get: operations["explain_api_v1_cycles__cycle_id__explain_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data/datasets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Datasets */
+        get: operations["datasets_api_v1_data_datasets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Data Options */
+        get: operations["data_options_api_v1_data_options_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Uploads */
+        get: operations["uploads_api_v1_data_uploads_get"];
+        put?: never;
+        /** Upload */
+        post: operations["upload_api_v1_data_uploads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data/uploads/{upload_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Upload Detail */
+        get: operations["upload_detail_api_v1_data_uploads__upload_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data/uploads/{upload_id}/discard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Discard */
+        post: operations["upload_discard_api_v1_data_uploads__upload_id__discard_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data/uploads/{upload_id}/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Import */
+        post: operations["upload_import_api_v1_data_uploads__upload_id__import_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -138,6 +309,193 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Jobs */
+        get: operations["jobs_api_v1_jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/backtest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Job Backtest */
+        post: operations["job_backtest_api_v1_jobs_backtest_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/broker/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Job Broker */
+        post: operations["job_broker_api_v1_jobs_broker_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/data/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Job Download */
+        post: operations["job_download_api_v1_jobs_data_download_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/data/inventory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Job Inventory */
+        post: operations["job_inventory_api_v1_jobs_data_inventory_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/data/synthesize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Job Synthesize */
+        post: operations["job_synthesize_api_v1_jobs_data_synthesize_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/data/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Job Validate */
+        post: operations["job_validate_api_v1_jobs_data_validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/research": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Job Research */
+        post: operations["job_research_api_v1_jobs_research_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Job Detail */
+        get: operations["job_detail_api_v1_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/{job_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Job Cancel */
+        post: operations["job_cancel_api_v1_jobs__job_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/{job_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Job Retry */
+        post: operations["job_retry_api_v1_jobs__job_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/kill-switch": {
         parameters: {
             query?: never;
@@ -167,6 +525,8 @@ export interface paths {
         /**
          * Engage
          * @description Stop new risk-increasing orders. Requires ``confirm`` = "STOP AUTOMATED TRADING".
+         *
+         *     Never rate limited: stopping must always be possible.
          */
         post: operations["engage_api_v1_kill_switch_engage_post"];
         delete?: never;
@@ -282,6 +642,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/research/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Research Runs */
+        get: operations["research_runs_api_v1_research_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/risk": {
         parameters: {
             query?: never;
@@ -293,6 +670,24 @@ export interface paths {
         get: operations["risk_api_v1_risk_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Settings View */
+        get: operations["settings_view_api_v1_settings_get"];
+        put?: never;
+        /** Settings Change */
+        post: operations["settings_change_api_v1_settings_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -350,6 +745,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/strategies/manager": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Strategy Manager */
+        get: operations["strategy_manager_api_v1_strategies_manager_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/strategies/{strategy_id}/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Strategy Enabled */
+        post: operations["strategy_enabled_api_v1_strategies__strategy_id__enabled_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/strategies/{strategy_id}/lifecycle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Strategy Lifecycle */
+        post: operations["strategy_lifecycle_api_v1_strategies__strategy_id__lifecycle_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/strategies/{strategy_id}/params": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Strategy Params */
+        post: operations["strategy_params_api_v1_strategies__strategy_id__params_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/system/health": {
         parameters: {
             query?: never;
@@ -367,10 +830,127 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/trading/control": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Trading Control */
+        get: operations["trading_control_api_v1_trading_control_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trading/live-readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Live Readiness */
+        get: operations["live_readiness_api_v1_trading_live_readiness_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trading/mode": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Trading Mode */
+        post: operations["trading_mode_api_v1_trading_mode_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trading/scheduler/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Scheduler Start */
+        post: operations["scheduler_start_api_v1_trading_scheduler_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trading/scheduler/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Scheduler Stop */
+        post: operations["scheduler_stop_api_v1_trading_scheduler_stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** BacktestParams */
+        BacktestParams: {
+            /** Costs */
+            costs?: {
+                [key: string]: number;
+            };
+            /** End */
+            end?: string | null;
+            /** Execution */
+            execution?: ("near_close" | "next_open" | "next_close" | "closing_auction") | null;
+            /** Execution Delay Bars */
+            execution_delay_bars?: number | null;
+            /** Initial Capital */
+            initial_capital?: number | null;
+            /** Source */
+            source?: string | null;
+            /** Start */
+            start?: string | null;
+            /** Strategies */
+            strategies: string[];
+            /** Use Synthetic History */
+            use_synthetic_history?: boolean | null;
+        };
+        /** BacktestRequest */
+        BacktestRequest: {
+            /**
+             * Actor
+             * @description the operator's name (audited)
+             */
+            actor: string;
+            params: components["schemas"]["BacktestParams"];
+        };
         /** Backtests */
         Backtests: {
             /** Backtests */
@@ -401,6 +981,21 @@ export interface components {
             /** Uses Real Money */
             uses_real_money: boolean;
         };
+        /**
+         * BrokerVerifyParams
+         * @description Read-only: verify the Alpaca paper account and run the read-only pre-flight checks.
+         */
+        BrokerVerifyParams: Record<string, never>;
+        /** BrokerVerifyRequest */
+        BrokerVerifyRequest: {
+            /**
+             * Actor
+             * @description the operator's name (audited)
+             */
+            actor: string;
+            /** @default {} */
+            params: components["schemas"]["BrokerVerifyParams"];
+        };
         /** Configuration */
         Configuration: {
             banner: components["schemas"]["Banner"];
@@ -417,10 +1012,194 @@ export interface components {
             /** Warnings */
             warnings: string[];
         };
+        /** DataDownloadParams */
+        DataDownloadParams: {
+            /** End */
+            end?: string | null;
+            /**
+             * Frequency
+             * @default 1d
+             * @enum {string}
+             */
+            frequency: "1d" | "1min" | "5min" | "15min" | "30min";
+            /** Provider */
+            provider?: ("file" | "alpaca" | "polygon") | null;
+            /** Start */
+            start?: string | null;
+            /** Symbols */
+            symbols?: string[] | null;
+        };
+        /** DataInventoryParams */
+        DataInventoryParams: Record<string, never>;
+        /** DataSynthesizeParams */
+        DataSynthesizeParams: {
+            /** Source */
+            source?: string | null;
+            /** Symbols */
+            symbols?: ("TQQQ" | "SQQQ")[] | null;
+        };
+        /** DataValidateParams */
+        DataValidateParams: {
+            /**
+             * Frequency
+             * @default 1d
+             * @enum {string}
+             */
+            frequency: "1d" | "1min" | "5min" | "15min" | "30min";
+            /**
+             * Require Fresh
+             * @default false
+             */
+            require_fresh: boolean;
+            /** Source */
+            source?: string | null;
+            /** Symbols */
+            symbols?: string[] | null;
+        };
+        /** DownloadRequest */
+        DownloadRequest: {
+            /**
+             * Actor
+             * @description the operator's name (audited)
+             */
+            actor: string;
+            /**
+             * @default {
+             *       "frequency": "1d"
+             *     }
+             */
+            params: components["schemas"]["DataDownloadParams"];
+        };
+        /** EnabledRequest */
+        EnabledRequest: {
+            /** Actor */
+            actor: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Reason */
+            reason: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** InventoryRequest */
+        InventoryRequest: {
+            /**
+             * Actor
+             * @description the operator's name (audited)
+             */
+            actor: string;
+            /** @default {} */
+            params: components["schemas"]["DataInventoryParams"];
+        };
+        /** Job */
+        Job: {
+            /** Cancel Requested */
+            cancel_requested: boolean;
+            /** Config Version */
+            config_version: string | null;
+            /** Error */
+            error: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Heartbeat At */
+            heartbeat_at: string | null;
+            /** Id */
+            id: string;
+            /** Job Type */
+            job_type: string;
+            /** Message */
+            message: string;
+            /** Params */
+            params: {
+                [key: string]: unknown;
+            };
+            /** Progress */
+            progress: number | null;
+            /** Requested At */
+            requested_at: string | null;
+            /** Requested By */
+            requested_by: string;
+            /** Result */
+            result: {
+                [key: string]: unknown;
+            } | null;
+            /** Retry Of */
+            retry_of: string | null;
+            /** Retryable */
+            retryable: boolean;
+            /** Started At */
+            started_at: string | null;
+            /** Status */
+            status: string;
+            /** Title */
+            title: string;
+        };
+        /** JobDetail */
+        JobDetail: {
+            /** Cancel Requested */
+            cancel_requested: boolean;
+            /** Config Version */
+            config_version: string | null;
+            /** Error */
+            error: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Heartbeat At */
+            heartbeat_at: string | null;
+            /** Id */
+            id: string;
+            /** Job Type */
+            job_type: string;
+            /** Logs */
+            logs: {
+                [key: string]: unknown;
+            }[];
+            /** Message */
+            message: string;
+            /** Params */
+            params: {
+                [key: string]: unknown;
+            };
+            /** Progress */
+            progress: number | null;
+            /** Requested At */
+            requested_at: string | null;
+            /** Requested By */
+            requested_by: string;
+            /** Result */
+            result: {
+                [key: string]: unknown;
+            } | null;
+            /** Retry Of */
+            retry_of: string | null;
+            /** Retryable */
+            retryable: boolean;
+            /** Started At */
+            started_at: string | null;
+            /** Status */
+            status: string;
+            /** Title */
+            title: string;
+        };
+        /** JobList */
+        JobList: {
+            /** Jobs */
+            jobs: components["schemas"]["Job"][];
+            /** Worker */
+            worker: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** JobRequest */
+        JobRequest: {
+            /**
+             * Actor
+             * @description the operator's name (audited)
+             */
+            actor: string;
         };
         /** KillSwitchRequest */
         KillSwitchRequest: {
@@ -449,6 +1228,49 @@ export interface components {
             fail_safe: boolean;
             /** Reason */
             reason: string;
+        };
+        /** LifecycleRequest */
+        LifecycleRequest: {
+            /** Actor */
+            actor: string;
+            /**
+             * Confirm
+             * @default
+             */
+            confirm: string;
+            /** Reason */
+            reason: string;
+            /**
+             * Target
+             * @enum {string}
+             */
+            target: "research" | "validated" | "paper" | "shadow" | "disabled";
+        };
+        /** ModeRequest */
+        ModeRequest: {
+            /** Actor */
+            actor: string;
+            /** Confirm */
+            confirm: string;
+            /** Reason */
+            reason: string;
+            /**
+             * Target
+             * @enum {string}
+             */
+            target: "shadow" | "paper";
+        };
+        /** MutationResult */
+        MutationResult: {
+            /** Detail */
+            detail?: {
+                [key: string]: unknown;
+            };
+            job?: components["schemas"]["Job"] | null;
+            /** Message */
+            message: string;
+            /** Ok */
+            ok: boolean;
         };
         /** Overview */
         Overview: {
@@ -490,6 +1312,17 @@ export interface components {
                 [key: string]: unknown;
             }[];
         };
+        /** ParamsRequest */
+        ParamsRequest: {
+            /** Actor */
+            actor: string;
+            /** Params */
+            params: {
+                [key: string]: number | string | boolean;
+            };
+            /** Reason */
+            reason: string;
+        };
         /** Portfolio */
         Portfolio: {
             /** Account */
@@ -510,6 +1343,40 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /** ReasonedRequest */
+        ReasonedRequest: {
+            /** Actor */
+            actor: string;
+            /** Reason */
+            reason: string;
+        };
+        /** ResearchParams */
+        ResearchParams: {
+            /** End */
+            end?: string | null;
+            /** Scheme */
+            scheme?: ("rolling" | "anchored") | null;
+            /** Simulations */
+            simulations?: number | null;
+            /** Source */
+            source?: string | null;
+            /** Start */
+            start?: string | null;
+            /** Strategies */
+            strategies?: string[] | null;
+            /** Use Synthetic History */
+            use_synthetic_history?: boolean | null;
+        };
+        /** ResearchRequest */
+        ResearchRequest: {
+            /**
+             * Actor
+             * @description the operator's name (audited)
+             */
+            actor: string;
+            /** @default {} */
+            params: components["schemas"]["ResearchParams"];
+        };
         /** Risk */
         Risk: {
             banner: components["schemas"]["Banner"];
@@ -526,6 +1393,43 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** SchedulerStartRequest */
+        SchedulerStartRequest: {
+            /** Actor */
+            actor: string;
+            /** Confirm */
+            confirm: string;
+            /** Reason */
+            reason: string;
+        };
+        /** SettingChange */
+        SettingChange: {
+            /** Path */
+            path: string;
+            /**
+             * Reset
+             * @default false
+             */
+            reset: boolean;
+            /** Value */
+            value?: number | string | boolean | null;
+        };
+        /** SettingsRequest */
+        SettingsRequest: {
+            /** Actor */
+            actor: string;
+            /** Changes */
+            changes: components["schemas"]["SettingChange"][];
+            /**
+             * Confirm
+             * @default
+             */
+            confirm: string;
+            /** Expected Revision */
+            expected_revision: number;
+            /** Reason */
+            reason: string;
+        };
         /** Strategies */
         Strategies: {
             banner: components["schemas"]["Banner"];
@@ -537,6 +1441,16 @@ export interface components {
             strategies: {
                 [key: string]: unknown;
             }[];
+        };
+        /** SynthesizeRequest */
+        SynthesizeRequest: {
+            /**
+             * Actor
+             * @description the operator's name (audited)
+             */
+            actor: string;
+            /** @default {} */
+            params: components["schemas"]["DataSynthesizeParams"];
         };
         /** SystemHealth */
         SystemHealth: {
@@ -561,6 +1475,21 @@ export interface components {
             /** Version */
             version: string;
         };
+        /** ValidateRequest */
+        ValidateRequest: {
+            /**
+             * Actor
+             * @description the operator's name (audited)
+             */
+            actor: string;
+            /**
+             * @default {
+             *       "frequency": "1d",
+             *       "require_fresh": false
+             *     }
+             */
+            params: components["schemas"]["DataValidateParams"];
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -583,6 +1512,40 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    audit_events_api_v1_audit_events_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                action?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     backtests_api_v1_backtests_get: {
         parameters: {
             query?: {
@@ -601,6 +1564,94 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Backtests"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    backtest_options_api_v1_backtests_options_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    backtest_runs_api_v1_backtests_runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    backtest_run_api_v1_backtests_runs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -698,6 +1749,221 @@ export interface operations {
             };
         };
     };
+    datasets_api_v1_data_datasets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    data_options_api_v1_data_options_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    uploads_api_v1_data_uploads_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_api_v1_data_uploads_post: {
+        parameters: {
+            query: {
+                symbol: string;
+                kind?: "bars" | "actions";
+                frequency?: "1d" | "1min" | "5min" | "15min" | "30min";
+                filename?: string;
+                actor: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_detail_api_v1_data_uploads__upload_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_discard_api_v1_data_uploads__upload_id__discard_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReasonedRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_import_api_v1_data_uploads__upload_id__import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     executions_api_v1_executions_get: {
         parameters: {
             query?: {
@@ -775,6 +2041,371 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    jobs_api_v1_jobs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                status?: string | null;
+                job_type?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    job_backtest_api_v1_jobs_backtest_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BacktestRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    job_broker_api_v1_jobs_broker_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrokerVerifyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    job_download_api_v1_jobs_data_download_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DownloadRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    job_inventory_api_v1_jobs_data_inventory_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventoryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    job_synthesize_api_v1_jobs_data_synthesize_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SynthesizeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    job_validate_api_v1_jobs_data_validate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValidateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    job_research_api_v1_jobs_research_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    job_detail_api_v1_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    job_cancel_api_v1_jobs__job_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReasonedRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    job_retry_api_v1_jobs__job_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
             };
         };
     };
@@ -999,6 +2630,39 @@ export interface operations {
             };
         };
     };
+    research_runs_api_v1_research_runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     risk_api_v1_risk_get: {
         parameters: {
             query?: {
@@ -1017,6 +2681,61 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Risk"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    settings_view_api_v1_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    settings_change_api_v1_settings_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResult"];
                 };
             };
             /** @description Validation Error */
@@ -1124,6 +2843,133 @@ export interface operations {
             };
         };
     };
+    strategy_manager_api_v1_strategies_manager_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    strategy_enabled_api_v1_strategies__strategy_id__enabled_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                strategy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnabledRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    strategy_lifecycle_api_v1_strategies__strategy_id__lifecycle_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                strategy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LifecycleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    strategy_params_api_v1_strategies__strategy_id__params_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                strategy_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ParamsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     system_health_api_v1_system_health_get: {
         parameters: {
             query?: {
@@ -1142,6 +2988,149 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SystemHealth"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    trading_control_api_v1_trading_control_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    live_readiness_api_v1_trading_live_readiness_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    trading_mode_api_v1_trading_mode_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scheduler_start_api_v1_trading_scheduler_start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SchedulerStartRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scheduler_stop_api_v1_trading_scheduler_stop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReasonedRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MutationResult"];
                 };
             };
             /** @description Validation Error */

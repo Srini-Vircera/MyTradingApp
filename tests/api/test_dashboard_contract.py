@@ -20,9 +20,22 @@ def test_dashboard_types_cover_every_api_path() -> None:
     assert missing == [], f"regenerate dashboard types (npm run gen:api): {missing}"
 
 
-def test_dashboard_writes_only_kill_switch() -> None:
+def test_dashboard_writes_exactly_the_api_allowlist() -> None:
+    """The dashboard's MUTATIONS list + the upload and kill-switch calls = the API allowlist."""
+    import re
+
+    from adaptive_quant.api.app import MUTATING_ROUTES
+
     api = (ROOT / "apps/dashboard/src/lib/api.ts").read_text(encoding="utf-8")
-    assert api.count('request(token, "POST"') == 1
+    block = api[api.index("export const MUTATIONS = [") : api.index("] as const satisfies")]
+    listed = set(re.findall(r'"(/api/v1/[^"]+)"', block))
+    client = listed | {
+        "/api/v1/data/uploads",
+        "/api/v1/kill-switch/engage",
+        "/api/v1/kill-switch/release",
+    }
+    assert {("POST", p) for p in client} == set(MUTATING_ROUTES)
+    assert api.count('request(token, "POST"') == 3  # killSwitch, mutate, uploadCsv
     assert "/api/v1/kill-switch/${action}" in api
     for verb in ('"PUT"', '"PATCH"', '"DELETE"'):
         assert verb not in api

@@ -67,6 +67,23 @@ stores their metadata and every operational/audit record. Migrations via Alembic
 indicator values) → `indicator_snapshots` → `data_snapshots`, all under one
 `cycle_id` and `config_version`.
 
+## Control plane (migration `0004`)
+
+| Table | Columns / notes |
+|---|---|
+| `control_jobs` | job id, type, validated `params_json`, status (queued/running/succeeded/failed/cancelled; a trigger makes terminal states final and forbids running → queued), requested by/at, started/finished/heartbeat times, worker id, progress, message, `result_json`, scrubbed error, `config_version`, `retry_of`, `cancel_requested` |
+| `control_job_logs` | append-only progress log per job |
+| `data_uploads` | uploaded CSV bytes (dropped on discard), sha256, symbol/kind/frequency, preview, status (validated/invalid/queued/imported/failed/discarded) |
+| `dataset_inventory` | the dataset list published by the worker |
+| `backtest_runs` | one row per backtest job: strategies, source, period, capital, bounded summary JSON (metrics, curve), report path, config version |
+| `runtime_config` | the single runtime overlay row (revision, setting overlay, strategy overrides) |
+| `runtime_config_changes` | append-only: actor, time, path, old, new, reason, config versions before/after |
+| `control_state` | keyed operator state: the scheduler switch, the latest broker verification |
+| `control_events` | append-only audit of every control-plane request (accepted and refused) |
+| `worker_heartbeats` | worker liveness and status (scheduler state, master gate, which credentials are configured — booleans only) |
+
+See [CONTROL_PLANE.md](CONTROL_PLANE.md).
+
 ## Implementation notes (M8)
 
 **Code** (`src/adaptive_quant/persistence/`):

@@ -71,21 +71,29 @@ export function useApi<P extends ReadPath>(
   path: P,
   query?: ReadQuery<P>,
   refreshMs = 60_000,
+  params?: Record<string, string> | null,
 ): Loaded<ReadResponse<P>> {
   const { token, signOut } = useSession();
   const [data, setData] = useState<ReadResponse<P> | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
-  const key = JSON.stringify(query ?? {});
+  const key = JSON.stringify([query ?? {}, params ?? {}]);
   const queryRef = useRef(query);
   queryRef.current = query;
+  const paramsRef = useRef(params);
+  paramsRef.current = params;
+  // ``params === null`` means "nothing selected yet": do not request anything
+  const skip = params === null;
 
   useEffect(() => {
-    if (!token) return;
+    if (!token || skip) {
+      setLoading(false);
+      return;
+    }
     const ctl = new AbortController();
     setLoading(true);
-    getJson(token, path, queryRef.current, ctl.signal)
+    getJson(token, path, queryRef.current, ctl.signal, paramsRef.current ?? undefined)
       .then((d) => {
         setData(d);
         setError(null);
@@ -101,7 +109,7 @@ export function useApi<P extends ReadPath>(
         if (!ctl.signal.aborted) setLoading(false);
       });
     return () => ctl.abort();
-  }, [token, path, key, tick, signOut]);
+  }, [token, path, key, tick, signOut, skip]);
 
   useEffect(() => {
     if (refreshMs <= 0) return;
@@ -111,4 +119,39 @@ export function useApi<P extends ReadPath>(
 
   const reload = useCallback(() => setTick((t) => t + 1), []);
   return { data, error, loading, reload };
+}
+
+/** Run allowlisted mutations with busy/error state; a 401 signs the operator out. */
+export function useMutation() {
+  const { token, signOut } = useSession();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const run = useCallback(
+    async <T,>(fn: (token: string) => Promise<T>): Promise<T | null> => {
+      if (!token) return null;
+      setBusy(true);
+      setError(null);
+      setMessage(null);
+      try {
+        const out = await fn(token);
+        const msg = (out as { message?: unknown } | null)?.message;
+        if (typeof msg === "string") setMessage(msg);
+        return out;
+      } catch (exc: unknown) {
+        const err = exc instanceof ApiError ? exc : new ApiError(0, "unexpected error");
+        if (err.unauthorized) signOut("The API rejected the token. Enter it again.");
+        setError(err.detail + (err.hint ? ` — ${err.hint}` : ""));
+        return null;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [token, signOut],
+  );
+  const clear = useCallback(() => {
+    setError(null);
+    setMessage(null);
+  }, []);
+  return { run, busy, error, message, clear };
 }

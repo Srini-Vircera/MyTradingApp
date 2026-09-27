@@ -310,3 +310,26 @@ def test_broker_state_check(db: Database) -> None:
     r.broker.set_unavailable(False)
     r.broker.trading_blocked = True
     assert not BrokerStateCheck(r.broker).run().passed
+
+
+@pytest.mark.parametrize(
+    "guard",
+    [lambda: "the runtime trading mode is now shadow", lambda: 1 / 0],
+    ids=["refuses", "raises"],
+)
+def test_transmit_guard_blocks_before_any_intent_or_submission(db: Database, guard: object) -> None:
+    """PAPER -> SHADOW / stop / unreadable state: nothing is transmitted (fail closed)."""
+    r = Rig(db)
+    r.manager.transmit_guard = guard  # type: ignore[assignment]
+    report = r.manager.execute(CYCLE, r.plan(QQQ="0.5"))
+    assert report.halted is not None and report.halted.startswith("transmission blocked")
+    assert report.transmitted == 0 and r.broker.submit_calls == 0
+    assert r.orders.intents() == []
+
+
+def test_transmit_guard_allows_when_consistent(db: Database) -> None:
+    r = Rig(db)
+    asked: list[int] = []
+    r.manager.transmit_guard = lambda: asked.append(1) or None  # type: ignore[func-returns-value]
+    report = r.manager.execute(CYCLE, r.plan(QQQ="0.5"))
+    assert report.halted is None and r.broker.submit_calls == len(asked) >= 1

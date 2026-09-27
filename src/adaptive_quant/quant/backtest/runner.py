@@ -5,6 +5,7 @@ Research use only. Nothing here can place an order.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 from datetime import date
 
@@ -45,14 +46,17 @@ def run_backtest(
     calendar: TradingCalendar,
     start: date,
     end: date,
+    *,
+    unpriced: frozenset[str] = frozenset(),
 ) -> AnalysedBacktest:
+    """``unpriced``: tradeable instruments allowed to lack data (see ``EngineSettings``)."""
     s = loaded.settings
     engine = BacktestEngine(
         frames=data.frames,
         strategies=strategies,
         instruments=s.universe.by_symbol,
         calendar=calendar,
-        settings=engine_settings(s),
+        settings=dataclasses.replace(engine_settings(s), unpriced_instruments=unpriced),
         synthetic=data.synthetic,
     )
     result = engine.run(start, end)
