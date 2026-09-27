@@ -46,7 +46,8 @@ Sections below marked *(Milestone N)* describe commands that do not exist yet.
 | [BACKTESTING.md](docs/BACKTESTING.md) | execution timing, costs, accounting, metrics, synthetic separation |
 | [RESEARCH.md](docs/RESEARCH.md) | parameter robustness, walk-forward, Monte Carlo, multiple-testing controls, scorecard, governance |
 | [DATABASE.md](docs/DATABASE.md) | audit-trail schema |
-| [API.md](docs/API.md) | operator API: endpoints, authentication, safety guarantees |
+| [API.md](docs/API.md) | operator API: endpoints, authentication, mutation allowlist, safety guarantees |
+| [CONTROL_PLANE.md](docs/CONTROL_PLANE.md) | jobs, worker, uploads, runtime settings, scheduler supervision, audit, security analysis |
 | [DASHBOARD.md](docs/DASHBOARD.md) | operator dashboard: pages, token handling, tests |
 | [DEPLOYMENT_RAILWAY.md](docs/DEPLOYMENT_RAILWAY.md) | Docker images, Railway setup, variables, health checks, backups, runbook |
 | [SAFETY.md](docs/SAFETY.md) | kill switch, refusal conditions, live-trading lock |
@@ -209,7 +210,14 @@ Set `trading.mode: shadow` to run the full pipeline without sending any order. S
 aq --env paper api serve     # needs AQ_API_TOKEN (>= 32 chars); localhost:8000/api/v1
 ```
 
-Read-only views plus the kill switch; it cannot change the trading mode. See [docs/API.md](docs/API.md).
+Views, the kill switch, and an allowlisted, audited control plane (queue worker
+jobs, CSV uploads, strategy governance up to shadow, runtime settings,
+shadow/paper scheduler control). It cannot place orders, enable live trading or
+grant live approval. See [docs/API.md](docs/API.md) and [docs/CONTROL_PLANE.md](docs/CONTROL_PLANE.md).
+
+```bash
+aq --env paper worker run    # executes the queued jobs (and supervises the scheduler when enabled)
+```
 
 ## 9b. Operator dashboard
 
@@ -219,8 +227,11 @@ cd apps/dashboard && npm ci && npm run dev   # http://localhost:3000, then enter
 ```
 
 Every page shows the PAPER/SHADOW/LIVE banner and a STOP AUTOMATED TRADING
-button (typed confirmation). The dashboard cannot change the trading mode, place
-orders or promote strategies. See [docs/DASHBOARD.md](docs/DASHBOARD.md).
+button (typed confirmation). From the browser you can manage data (uploads,
+downloads, validation), run backtests and research, manage strategies, change
+runtime settings and start/stop shadow or paper trading — all audited. It cannot
+place orders itself, enable live trading or approve a strategy for live trading.
+See [docs/DASHBOARD.md](docs/DASHBOARD.md).
 
 ## 9c. Deployment (Railway / Docker)
 

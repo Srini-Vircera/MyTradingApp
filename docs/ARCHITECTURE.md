@@ -54,6 +54,13 @@ Strategies cannot import broker code; the risk engine cannot be bypassed
 because the order planner only accepts a `TargetPortfolio` that carries a risk
 decision ID (M7/M9).
 
+### Control plane
+
+The operator API and dashboard control the platform through PostgreSQL: the API
+queues validated jobs, the worker (`aq worker run`) executes them with the shared
+services in `src/adaptive_quant/services/` (the same code the CLI uses) and stores
+the results. See [CONTROL_PLANE.md](CONTROL_PLANE.md).
+
 ## 2. Key architectural decisions
 
 | # | Decision | Why |

@@ -72,6 +72,29 @@ Shadow mode runs the identical pipeline and planner; the only difference is
 the final `submit_order` call is replaced by persistence of what *would* have
 been sent. Paper and shadow can run side by side (different environments).
 
+## Operating from the dashboard (control plane)
+
+Trading Control ([DASHBOARD.md](DASHBOARD.md), [CONTROL_PLANE.md](CONTROL_PLANE.md))
+replaces editing YAML to move between shadow and paper:
+
+1. **Verify broker connection (read-only)** — a worker job that builds the
+   configured broker adapter (Alpaca paper only) and calls `get_account`; it
+   records whether the account is a paper account on the paper host. No order is
+   ever sent by this check.
+2. **Use paper trading (simulated funds)** — needs `ENABLE PAPER TRADING`, a
+   successful paper verification from the last 60 minutes and a stopped
+   scheduler; recorded as an audited runtime change (`trading.mode: paper`).
+   Returning to shadow needs `USE SHADOW MODE`.
+3. **Start** — needs `START PAPER TRADING` (or `START SHADOW TRADING`) and at
+   least one eligible strategy; paper additionally re-checks the verification.
+   The worker starts the cycle only if `AQ_SCHEDULER_ENABLED=true`. The kill switch
+   stays engaged until separately released.
+4. **Stop** — always accepted; no new step starts.
+
+Paper mode is shown as **PAPER TRADING — SIMULATED FUNDS** everywhere. The
+immutable trail is `control_events` + `runtime_config_changes` +
+`kill_switch_events` + the cycle/order tables.
+
 ## Paper vs. backtest report (M13)
 
 For each paper session: backtest the same config over the same day(s) and

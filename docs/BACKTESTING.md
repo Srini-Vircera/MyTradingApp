@@ -33,6 +33,29 @@ aq backtest run --strategy a --strategy b          # several strategies: naive e
 - The default start is the first session at which every strategy is warmed up and every tradeable instrument has a *prior* close (needed for sizing).
 - Command-line overrides are recorded in the report's provenance.
 
+### From the dashboard
+
+The Backtests page queues a `backtest.run` job with the same options (strategies
+from the catalogue, data source, dates, starting capital, execution timing,
+extra delay, synthetic history on/off, cost overrides; defaults come from the
+effective configuration). The worker runs `services/backtests.py` — the same code
+as `aq backtest run`, and the same single engine — writes the usual report
+directory, and stores a bounded summary in PostgreSQL (`backtest_runs`): period,
+strategies and versions, config version, starting capital, ending equity, total
+return, CAGR, volatility, Sharpe, Sortino, max drawdown and its duration, Calmar,
+turnover, trade counts, per-segment and benchmark metrics, whether synthetic data
+was used, notes, and a down-sampled equity/drawdown curve for the charts. Every
+result carries the hypothetical disclaimer.
+
+**QQQ-only data.** When the selected strategies can never hold TQQQ or SQQQ
+(long-only, at most 1× exposure, `long_mode` other than `tqqq_only`, and a
+volatility target that can only reduce exposure), a backtest runs without
+TQQQ/SQQQ prices; `baseline_buy_hold` on a QQQ-only dataset is the typical case.
+The result lists the instruments that were not loaded. The engine checks every
+allocation and stops the run with an error if weight ever lands on an instrument
+without prices, so this cannot silently change results. Without a corporate-actions
+file the QQQ series excludes dividends (see [DATA.md](DATA.md)).
+
 ## Execution timing (no look-ahead)
 
 | Model | Decision time (data visible) | Fill |

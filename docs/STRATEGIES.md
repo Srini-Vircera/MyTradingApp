@@ -88,6 +88,25 @@ All errors are reported together.
 - Declaring `live_approved` in config requires an `approval:` block with `approved_by`, `approved_on` and a written `justification` of at least 20 characters. Software never promotes (see `governance/lifecycle.py`).
 - The shipped configuration keeps everything in `research`, so **paper and live modes currently have zero eligible strategies**. Promotion is a deliberate human step, taken after Milestone 6 evidence.
 
+## Strategy Manager (dashboard)
+
+The dashboard's Strategy Manager ([DASHBOARD.md](DASHBOARD.md)) shows each strategy's
+id, family, implementation and version, parameters, research grid, warm-up,
+enabled flag, lifecycle, eligible modes, approval and its latest research and
+backtest evidence. Its changes are stored as audited **runtime overrides**
+(`runtime_config` in PostgreSQL) on top of `config/strategies.yaml`, which stays
+the reviewed source; every change produces a new `config_version`.
+
+| Action | Rule |
+|---|---|
+| Parameters | A form generated from the implementation's parameter schema (types, bounds, choices); no code editing. Allowed only in `research` or `disabled`, because a new parameter set is a new version without evidence. Validated by the strategy registry before it is saved |
+| Enable / disable | Controls whether the strategy may run in backtests and research. **Enabled is not eligible**: trading in shadow/paper additionally needs lifecycle `paper` or later |
+| Lifecycle | research → validated → paper → shadow (and back / disabled), validated by `governance.lifecycle.transition` with a **human** actor, recorded in `strategy_lifecycle_events` and `control_events`. Promotions need the operator's name, a justification of ≥ 20 characters and the phrase `APPROVE PROMOTION` |
+| `live_approved` | **Never from the UI.** It remains a reviewed change to `config/strategies.yaml` with an `approval:` block |
+
+A running scheduler keeps the strategy set it started with; stop and start it to
+apply lifecycle changes.
+
 ## Research command
 
 ```bash
