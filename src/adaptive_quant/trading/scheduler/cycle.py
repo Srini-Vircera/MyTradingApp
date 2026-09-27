@@ -102,6 +102,8 @@ class CycleDeps:
     validator: BarValidator
     notifier: NotificationRouter | None = None
     quotes: QuoteSource | None = None  # current prices; default: last known closes
+    #: asked before every order transmission; a returned reason halts execution
+    transmit_guard: Callable[[], str | None] | None = None
 
 
 class TradingCycle:
@@ -115,7 +117,9 @@ class TradingCycle:
         self.cycles = CycleRepository(deps.db)
         self.orders = order_repository(deps.db)
         self.monitor = MonitoringRepository(deps.db)
-        self.manager = OrderManager(deps.broker, self.orders, self.cycles, deps.clock, self.mode)
+        self.manager = OrderManager(
+            deps.broker, self.orders, self.cycles, deps.clock, self.mode, deps.transmit_guard
+        )
         self.planner = OrderPlanner(
             s.trading, s.risk, s.universe.by_symbol, deps.broker.capabilities.supports_fractional
         )

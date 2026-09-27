@@ -141,10 +141,15 @@ def test_worker_jobs_reach_the_broker_only_for_a_read_only_account_check() -> No
                 "adaptive_quant.trading"
             ):
                 trading_imports.setdefault(fn.name, set()).add(node.module or "")
+    # only the read-only paper-account verification / pre-flight job touches trading code,
+    # and only the factory (paper adapter only), the constant host, and read-only checks
     assert trading_imports == {
         "_broker_verify": {
             "adaptive_quant.trading.brokers.alpaca",
             "adaptive_quant.trading.brokers.factory",
+            "adaptive_quant.trading.safety.broker_checks",
+            "adaptive_quant.trading.safety.db_checks",
+            "adaptive_quant.trading.safety.kill_switch_store",
         }
     }
     top = {m for m in imports(handlers) if m.startswith("adaptive_quant.trading")}

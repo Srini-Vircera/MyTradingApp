@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { TradingModePanel } from "@/components/TradingMode";
 import { ActionResult } from "@/components/control";
 import { DataTable, LoadState, PageHeader, Section, StatusBadge } from "@/components/ui";
 import { mutate, type Row } from "@/lib/api";
@@ -92,6 +93,7 @@ function Editor({ r, pending, setPending }: { r: Row; pending: Pending; setPendi
 
 export default function SettingsPage() {
   const s = useApi("/api/v1/settings", undefined, 60_000);
+  const control = useApi("/api/v1/trading/control", undefined, 10_000);
   const d = s.data as Row | null;
   const rows = (d?.settings as Row[] | undefined) ?? [];
   const [pending, setPending] = useState<Pending>({});
@@ -151,6 +153,22 @@ export default function SettingsPage() {
             const ordered = [...inCat.filter(editable), ...inCat.filter((r) => !editable(r))];
             return (
               <Section key={cat} title={cat}>
+                {cat === "Trading" && (
+                  <div className="card" aria-label="Trading Mode">
+                    <h3>Trading Mode</h3>
+                    {control.data ? (
+                      <TradingModePanel
+                        c={control.data as Row}
+                        onChanged={() => {
+                          control.reload();
+                          s.reload();
+                        }}
+                      />
+                    ) : (
+                      <LoadState loading={control.loading} error={control.error} />
+                    )}
+                  </div>
+                )}
                 {cat === "Risk" && (
                   <p className="alert warning">
                     Risk limits can only be made stricter here, and need the confirmation phrase.

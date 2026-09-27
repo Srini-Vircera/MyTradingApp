@@ -109,7 +109,7 @@ class ResearchParams(JobParams):
 
 
 class BrokerVerifyParams(JobParams):
-    """Read-only: fetch the paper account to confirm the credentials and endpoint."""
+    """Read-only: verify the Alpaca paper account and run the read-only pre-flight checks."""
 
 
 JOB_TYPES: dict[str, type[JobParams]] = {
@@ -145,7 +145,7 @@ TITLES = {
     "data.import_upload": "Import uploaded CSV",
     "backtest.run": "Backtest",
     "research.run": "Research run",
-    "broker.verify": "Verify broker connection (read-only)",
+    "broker.verify": "Verify Alpaca paper account and readiness (read-only)",
 }
 
 

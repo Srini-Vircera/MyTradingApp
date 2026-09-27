@@ -20,7 +20,7 @@ describe("ModeBanner", () => {
   it("shows PAPER prominently", () => {
     render(<ModeBanner banner={BANNER} />);
     expect(screen.getByTestId("mode-banner")).toHaveClass("mode-paper");
-    expect(screen.getByText("PAPER TRADING")).toBeTruthy();
+    expect(screen.getByText("PAPER TRADING — SIMULATED FUNDS")).toBeTruthy();
   });
 
   it("shows LIVE / real money and unknown modes as warnings", () => {

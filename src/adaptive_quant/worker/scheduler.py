@@ -14,7 +14,12 @@ is always allowed and fails safe: the next due step simply does not run, and a
 step already in progress finishes (it is never interrupted half-way).
 
 Configuration changes made while the scheduler runs are **not** hot-swapped:
-the supervisor reports that a stop/start is needed to apply them.
+the supervisor reports that a stop/start is needed to apply them - except the
+**runtime trading mode**: if it no longer matches the mode the scheduler was
+started in (e.g. the operator switched PAPER -> SHADOW), the scheduler is
+stopped at once. Independently, every order transmission asks a guard that
+re-reads the persisted mode, the operator switch and the master gate, so no
+paper order can be sent after a switch to SHADOW or a stop, even mid-step.
 """
 
 from __future__ import annotations
@@ -26,7 +31,8 @@ from typing import Any
 
 from adaptive_quant.config.loader import LoadedConfig
 from adaptive_quant.config.secrets import Secrets
-from adaptive_quant.control.state import SCHEDULER_KEY, desired_running, master_gate
+from adaptive_quant.control.readiness import PREFLIGHT_CHECKS, SWITCH_CHECKS, verification_problems
+from adaptive_quant.control.state import BROKER_KEY, SCHEDULER_KEY, desired_running, master_gate
 from adaptive_quant.core.clock import Clock
 from adaptive_quant.core.errors import AQError, SafetyViolation
 from adaptive_quant.observability.logging import get_logger
@@ -42,6 +48,33 @@ _log = get_logger(__name__)
 RETRY_AFTER = timedelta(seconds=60)
 
 BuildDeps = Callable[[LoadedConfig, Secrets, Clock], CycleDeps]
+
+
+def desired_mode(state: Any) -> str | None:
+    value = (state or {}).get("value")
+    return value.get("mode") if isinstance(value, dict) else None
+
+
+def make_transmit_guard(
+    base: LoadedConfig, db: Database, environ: Mapping[str, str], running_mode: str
+) -> Callable[[], str | None]:
+    """Asked before every order transmission; any reason (or error) blocks it."""
+
+    def guard() -> str | None:
+        if not master_gate(environ):
+            return "the scheduler master gate is off"
+        effective, _row = effective_config(base, db)
+        mode = effective.settings.trading.mode.value
+        if mode != running_mode:
+            return f"the runtime trading mode is now {mode} (started in {running_mode})"
+        st = ControlRepository(db).get_state(SCHEDULER_KEY)
+        if not desired_running(st):
+            return "automation was stopped by the operator"
+        if desired_mode(st) not in (None, running_mode):
+            return "automation was requested for a different mode"
+        return None
+
+    return guard
 
 
 @dataclass
@@ -106,6 +139,12 @@ class SchedulerSupervisor:
             self._set("stopped" if gate or not desired else "blocked", reason, now)
             self._retry_at = None
             return
+        if self.running:
+            mismatch = self._mode_mismatch(repo)
+            if mismatch is not None:
+                self.stop(mismatch)
+                self._set("stopped", f"stopped: {mismatch}", now)
+                return
         if not self.running:
             if self._retry_at is not None and now < self._retry_at:
                 return
@@ -114,12 +153,51 @@ class SchedulerSupervisor:
                 return
         self._tick(now)
 
+    def _mode_mismatch(self, repo: ControlRepository) -> str | None:
+        """The persisted runtime mode (or the requested one) changed since start."""
+        try:
+            effective, _row = effective_config(self.base, self.db)
+        except AQError as exc:
+            return f"runtime configuration unreadable: {exc.message}"
+        mode = effective.settings.trading.mode.value
+        if mode != self.status.mode:
+            return f"runtime trading mode changed to {mode}"
+        wanted = desired_mode(repo.get_state(SCHEDULER_KEY))
+        if wanted not in (None, mode):
+            return f"automation was requested for {wanted} mode"
+        return None
+
     def _start(self, now: datetime) -> None:
         try:
             effective, _row = effective_config(self.base, self.db)
-            if effective.settings.trading.mode.uses_real_money:  # defence in depth
+            mode = effective.settings.trading.mode
+            if mode.uses_real_money:  # defence in depth
                 raise SafetyViolation("the scheduler never runs in live mode here")
+            repo = ControlRepository(self.db)
+            wanted = desired_mode(repo.get_state(SCHEDULER_KEY))
+            if wanted not in (None, mode.value):
+                raise SafetyViolation(
+                    f"automation was requested for {wanted} mode but the runtime mode is "
+                    f"{mode.value}",
+                    hint="start automation again from Trading Control",
+                )
+            if mode.value == "paper":
+                verification = (repo.get_state(BROKER_KEY) or {}).get("value")
+                problems = verification_problems(
+                    verification, now, (*SWITCH_CHECKS, *PREFLIGHT_CHECKS)
+                )
+                if problems:
+                    raise SafetyViolation(
+                        "paper automation needs a fresh, successful paper-account "
+                        "verification: " + "; ".join(problems)
+                    )
             deps = self.build(effective, self.secrets, self.clock)
+            if mode.value == "paper" and deps.kill_switch.is_engaged():
+                deps.db.dispose()
+                raise SafetyViolation(
+                    "the kill switch is engaged; release it before starting paper automation"
+                )
+            deps.transmit_guard = make_transmit_guard(self.base, self.db, self.environ, mode.value)
             lock = AdvisoryLock(deps.db, f"aq-scheduler-{effective.settings.app.environment.value}")
             if not lock.acquire(wait_seconds=0):
                 deps.db.dispose()

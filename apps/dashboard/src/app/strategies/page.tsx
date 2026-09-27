@@ -19,6 +19,20 @@ const LIFECYCLE: Record<string, Status> = {
 };
 
 type Target = "research" | "validated" | "paper" | "shadow" | "disabled";
+
+/** Whether the strategy may take part in research (backtests), shadow or paper trading. */
+function Participation({ r, mode }: { r: Row; mode: "backtest" | "shadow" | "paper" }) {
+  const ok = ((r.eligible_modes as string[] | undefined) ?? []).includes(mode);
+  return ok ? (
+    <span className="tick" aria-label="yes">
+      ✓
+    </span>
+  ) : (
+    <span className="cross" aria-label="no">
+      ✗
+    </span>
+  );
+}
 const MIN_JUSTIFICATION = 20;
 
 function ParamForm({ s, onSaved }: { s: Row; onSaved: () => void }) {
@@ -296,7 +310,11 @@ export default function StrategiesPage() {
     <>
       <PageHeader title="Strategy Manager">
         The strategy catalogue with governance. Nothing here edits strategy code or formulas, and no
-        strategy is shown to have an edge: evidence is hypothetical.
+        strategy is shown to have an edge: evidence is hypothetical. Research = backtests and
+        research runs (enabled strategies); Shadow and Paper trading need a human-approved
+        lifecycle of <strong>paper</strong> or later. Selecting PAPER mode never approves a
+        strategy; use “Advance to paper” here. Live approval is never available in the
+        dashboard.
       </PageHeader>
       <LoadState loading={s.loading && !d} error={s.error} />
       <Section title="Catalogue">
@@ -312,7 +330,9 @@ export default function StrategiesPage() {
               render: (r: Row) => <StatusBadge status={LIFECYCLE[String(r.lifecycle)] ?? "neutral"} label={text(r.lifecycle)} />,
             },
             { key: "enabled", label: "Enabled" },
-            { key: "eligible_for_paper_or_shadow", label: "Can trade (paper/shadow)" },
+            { key: "research", label: "Research", render: (r) => <Participation r={r} mode="backtest" /> },
+            { key: "shadow", label: "Shadow", render: (r) => <Participation r={r} mode="shadow" /> },
+            { key: "paper", label: "Paper", render: (r) => <Participation r={r} mode="paper" /> },
             { key: "params", label: "Parameters", render: (r) => text(r.params) },
             { key: "warmup_bars", label: "Warm-up", numeric: true },
             {

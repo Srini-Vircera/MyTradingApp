@@ -13,7 +13,7 @@ import { BANNER } from "./helpers";
 
 describe("mode banner logic", () => {
   it("labels paper, shadow and backtest modes", () => {
-    expect(describeMode(BANNER).label).toBe("PAPER TRADING");
+    expect(describeMode(BANNER).label).toBe("PAPER TRADING — SIMULATED FUNDS");
     expect(describeMode({ ...BANNER, mode: "shadow" }).tone).toBe("shadow");
     expect(describeMode({ ...BANNER, mode: "backtest" }).tone).toBe("neutral");
   });

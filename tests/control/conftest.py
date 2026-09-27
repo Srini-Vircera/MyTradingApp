@@ -47,3 +47,24 @@ def qqq_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
     to_csv(bars, imp / "QQQ.csv", actions=False)
     assert aq(config_dir, "data", "download", "--symbols", "QQQ", "--start", str(QS)) == EXIT_OK
     return config_dir
+
+
+@pytest.fixture(scope="module")
+def full_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """QQQ, TQQQ and SQQQ (generated, never real data) - enough for research runs."""
+    root = tmp_path_factory.mktemp("full")
+    config_dir = root / "config"
+    shutil.copytree(REPO_CONFIG, config_dir)
+    imp = root / "var/data/import"
+    imp.mkdir(parents=True)
+    for sym, price, vol, seed in (
+        ("QQQ", 100, 0.012, 11),
+        ("TQQQ", 30, 0.036, 12),
+        ("SQQQ", 60, 0.036, 13),
+    ):
+        to_csv(daily_bars(QS, QE, start_price=price, vol=vol, seed=seed), imp / f"{sym}.csv")
+    assert (
+        aq(config_dir, "data", "download", "--symbols", "QQQ", "TQQQ", "SQQQ", "--start", str(QS))
+        == EXIT_OK
+    )
+    return config_dir

@@ -24,7 +24,9 @@ SECRET = "sk-" + "s3cr3t" * 5
 
 
 def make_worker(config_dir: Path, db: Database) -> Worker:
-    secrets = Secrets(ALPACA_API_SECRET_KEY=SECRET, AQ_API_TOKEN="x" * 40)
+    secrets = Secrets(
+        ALPACA_API_KEY_ID="PKTESTKEYID", ALPACA_API_SECRET_KEY=SECRET, AQ_API_TOKEN="x" * 40
+    )
     return Worker(
         load_config("development", config_dir=config_dir),
         secrets,
@@ -132,13 +134,20 @@ def test_scrub_ignores_short_or_missing_values() -> None:
 
 class FakeAccount:
     def __init__(self, is_paper: bool) -> None:
+        from decimal import Decimal
+
         self.is_paper = is_paper
         self.trading_blocked = False
         self.currency = "USD"
+        self.equity = Decimal(100000)
+        self.buying_power = Decimal(200000)
+
+
+READS = ("get_account", "get_positions", "get_open_orders")
 
 
 class FakeBroker:
-    """Records every call; only ``get_account`` exists, so any other call would fail."""
+    """Records every call. Only read methods exist: any order call would raise."""
 
     def __init__(self, is_paper: bool = True, fail: bool = False) -> None:
         self.calls: list[str] = []
@@ -150,16 +159,24 @@ class FakeBroker:
             raise RuntimeError(f"401 unauthorized for key {SECRET}")
         return FakeAccount(self.is_paper)
 
+    def get_positions(self) -> list[object]:
+        self.calls.append("get_positions")
+        return []
+
+    def get_open_orders(self) -> list[object]:
+        self.calls.append("get_open_orders")
+        return []
+
 
 @pytest.mark.parametrize(
     ("broker", "status", "is_paper"),
     [
         (FakeBroker(), "succeeded", True),
-        (FakeBroker(is_paper=False), "succeeded", False),
+        (FakeBroker(is_paper=False), "failed", False),
         (FakeBroker(fail=True), "failed", False),
     ],
 )
-def test_broker_verification_only_reads_the_account(
+def test_paper_verification_only_reads_the_account(
     qqq_project: Path,
     db: Database,
     monkeypatch: pytest.MonkeyPatch,
@@ -170,20 +187,64 @@ def test_broker_verification_only_reads_the_account(
     from adaptive_quant.control.state import BROKER_KEY
     from adaptive_quant.trading.brokers import factory
 
+    broker.calls.clear()
     monkeypatch.setattr(factory, "build_broker", lambda *_a: broker)
     w = make_worker(qqq_project, db)
     jid = submit(db, "broker.verify", {})
     w.run_once()
     repo = ControlRepository(db)
     job = repo.get_job(jid)
-    assert job is not None and job["status"] == status
-    assert broker.calls == ["get_account"]
+    assert job is not None and job["status"] == status, job
+    assert set(broker.calls) <= set(READS) and broker.calls[0] == "get_account"
     state = repo.get_state(BROKER_KEY)
     assert state is not None
     v = state["value"]
-    assert v["is_paper"] is is_paper and v["paper_endpoint"] is True
+    assert v["is_paper"] is is_paper and v["paper_endpoint"] is True and v["ok"] is is_paper
     assert v["endpoint_host"] == "paper-api.alpaca.markets"
+    names = {c["name"]: c["passed"] for c in v["checks"]}
+    assert names["provider"] and names["paper_endpoint"] and names["credentials"]
+    assert names["database"] and names["kill_switch_known"] and names["reconciliation"]
+    # QQQ-only store: TQQQ/SQQQ missing -> the pre-flight (needed to start) is not ok
+    assert names["market_data"] is False and v["preflight_ok"] is False
     assert SECRET not in str(state) and SECRET not in str(job)
+    assert all(SECRET not in e["message"] for e in repo.job_logs(jid))
+
+
+def test_verification_never_reaches_a_live_endpoint(
+    tmp_path: Path, db: Database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Even a (hypothetically) mis-configured endpoint is refused before any request."""
+    import shutil
+
+    import httpx
+    import yaml
+
+    from adaptive_quant.control.state import BROKER_KEY
+    from tests.conftest import REPO_CONFIG
+
+    config_dir = tmp_path / "config"
+    shutil.copytree(REPO_CONFIG, config_dir)
+    dev = config_dir / "development.yaml"
+    data = yaml.safe_load(dev.read_text()) or {}
+    data.setdefault("broker", {}).setdefault("alpaca", {})["paper_base_url"] = (
+        "https://api.alpaca.markets"
+    )
+    dev.write_text(yaml.safe_dump(data))
+    sent: list[str] = []
+
+    def no_client(*_a: object, **_k: object) -> None:
+        sent.append("client")
+
+    monkeypatch.setattr(httpx, "Client", no_client)
+    w = make_worker(config_dir, db)
+    jid = submit(db, "broker.verify", {})
+    w.run_once()
+    repo = ControlRepository(db)
+    job = repo.get_job(jid)
+    assert job is not None and job["status"] == "failed"
+    v = repo.get_state(BROKER_KEY)["value"]  # type: ignore[index]
+    assert v["paper_endpoint"] is False and v["ok"] is False
+    assert sent == []  # no HTTP client was even created
 
 
 def test_file_download_job_refreshes_the_inventory(qqq_project: Path, db: Database) -> None:
@@ -242,3 +303,51 @@ def test_upload_import_writes_a_server_named_file(tmp_path: Path, db: Database) 
     w.run_once()
     again = repo.get_job(jid2)
     assert again is not None and again["status"] == "failed" and "imported" in again["error"]
+
+
+@pytest.mark.parametrize(
+    ("job_type", "params"),
+    [
+        ("backtest.run", {"strategies": ["baseline_buy_hold"], "source": "file"}),
+        (
+            "research.run",
+            {"strategies": ["baseline_buy_hold"], "source": "file", "simulations": 10},
+        ),
+    ],
+)
+def test_backtests_and_research_never_touch_a_broker_in_paper_mode(
+    full_project: Path,
+    db: Database,
+    monkeypatch: pytest.MonkeyPatch,
+    job_type: str,
+    params: dict[str, Any],
+) -> None:
+    from adaptive_quant.trading.brokers import alpaca, factory
+    from adaptive_quant.trading.orders import manager
+
+    def forbidden(*_a: object, **_k: object) -> None:
+        raise AssertionError("a broker was used by a research job")
+
+    monkeypatch.setattr(factory, "build_broker", forbidden)
+    monkeypatch.setattr(alpaca.AlpacaPaperBroker, "submit_order", forbidden)
+    monkeypatch.setattr(manager.OrderManager, "execute", forbidden)
+    repo = ControlRepository(db)
+    repo.save_runtime_config(
+        expected_revision=0,
+        overlay={"trading.mode": "paper"},
+        strategy_overrides={},
+        actor="op",
+        now=QNOW,
+        changes=[],
+        version_before="a",
+        version_after="b",
+    )
+    w = make_worker(full_project, db)
+    jid = submit(db, job_type, params)
+    w.run_once()
+    job = repo.get_job(jid)
+    assert job is not None
+    assert job["status"] == "succeeded", job["error"]
+    assert (
+        job["config_version"] != load_config("development", config_dir=full_project).config_version
+    )

@@ -983,7 +983,7 @@ export interface components {
         };
         /**
          * BrokerVerifyParams
-         * @description Read-only: fetch the paper account to confirm the credentials and endpoint.
+         * @description Read-only: verify the Alpaca paper account and run the read-only pre-flight checks.
          */
         BrokerVerifyParams: Record<string, never>;
         /** BrokerVerifyRequest */

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -435,109 +435,7 @@ def test_settings_view_has_no_secret_values(api: TestClient, repo: ControlReposi
     assert {s["class"] for s in view["settings"]} >= {"runtime", "runtime_confirm", "immutable"}
 
 
-# ================================================================ trading control
-def promote_to_paper(api: TestClient) -> None:
-    for target in ("validated", "paper"):
-        r = post(
-            api,
-            "strategies/baseline_buy_hold/lifecycle",
-            {"actor": ACTOR, "reason": WHY, "target": target, "confirm": ctl.PROMOTION_CONFIRM},
-        )
-        assert r.status_code == 200, r.text
-
-
-def verified(repo: ControlRepository, *, age: timedelta = timedelta(0), paper: bool = True) -> None:
-    repo.set_state(
-        ctl.BROKER_KEY,
-        {
-            "ok": True,
-            "is_paper": paper,
-            "paper_endpoint": True,
-            "verified_at": (NOW - age).isoformat(),
-        },
-        "worker",
-        NOW,
-    )
-
-
-def test_trading_control_view_is_locked_to_simulated_money(
-    api: TestClient, repo: ControlRepository
-) -> None:
-    v = api.get("/api/v1/trading/control", headers=AUTH).json()
-    assert v["mode"] == "shadow" and v["real_money_possible"] is False
-    assert v["uses_real_money"] is False and v["kill_switch"]["engaged"] is True
-    assert v["scheduler"]["desired"] == "stopped" and v["scheduler"]["master_gate"] is False
-    assert v["broker"]["paper_endpoint"] is True and v["broker"]["live_adapter_available"] is False
-    assert v["eligible_strategies"] == []
-
-
-def test_scheduler_start_requires_phrase_and_eligible_strategies(
-    api: TestClient, repo: ControlRepository
-) -> None:
-    body = {"actor": ACTOR, "reason": "begin shadow run", "confirm": "yes"}
-    assert post(api, "trading/scheduler/start", body).status_code == 400
-    body["confirm"] = ctl.START_SHADOW_CONFIRM
-    r = post(api, "trading/scheduler/start", body)
-    assert r.status_code == 409 and "eligible" in r.json()["detail"]
-    promote_to_paper(api)
-    r = post(api, "trading/scheduler/start", body)
-    assert r.status_code == 200 and "AQ_SCHEDULER_ENABLED is off" in r.json()["message"]
-    assert ctl.desired_running(repo.get_state(ctl.SCHEDULER_KEY))
-    r = post(api, "trading/scheduler/stop", {"actor": ACTOR, "reason": "end of test"})
-    assert r.status_code == 200 and not ctl.desired_running(repo.get_state(ctl.SCHEDULER_KEY))
-    actions = [e["action"] for e in events(repo, "scheduler")]
-    assert actions[:3] == ["scheduler.stop", "scheduler.start", "scheduler.start"]
-
-
-def test_paper_mode_requires_a_fresh_verified_paper_account(
-    api: TestClient, repo: ControlRepository
-) -> None:
-    body = {
-        "actor": ACTOR,
-        "reason": "move to paper",
-        "target": "paper",
-        "confirm": ctl.PAPER_MODE_CONFIRM,
-    }
-    assert post(api, "trading/mode", {**body, "confirm": "paper"}).status_code == 400
-    r = post(api, "trading/mode", body)
-    assert r.status_code == 409 and "Verify broker" in r.json()["detail"]
-    verified(repo, paper=False)
-    assert post(api, "trading/mode", body).status_code == 409
-    verified(repo, age=timedelta(hours=2))
-    r = post(api, "trading/mode", body)
-    assert r.status_code == 409 and "older" in r.json()["detail"]
-    verified(repo)
-    r = post(api, "trading/mode", body)
-    assert r.status_code == 200 and "simulated funds" in r.json()["message"]
-    v = api.get("/api/v1/trading/control", headers=AUTH).json()
-    assert v["mode"] == "paper" and v["uses_real_money"] is False
-    back = {
-        "actor": ACTOR,
-        "reason": "back to shadow",
-        "target": "shadow",
-        "confirm": ctl.SHADOW_MODE_CONFIRM,
-    }
-    assert post(api, "trading/mode", back).status_code == 200
-
-
-def test_mode_cannot_change_while_the_scheduler_runs(
-    api: TestClient, repo: ControlRepository
-) -> None:
-    verified(repo)
-    repo.set_state(ctl.SCHEDULER_KEY, {"desired": "running"}, ACTOR, NOW)
-    body = {
-        "actor": ACTOR,
-        "reason": "move to paper",
-        "target": "paper",
-        "confirm": ctl.PAPER_MODE_CONFIRM,
-    }
-    r = post(api, "trading/mode", body)
-    assert r.status_code == 409 and "stop the scheduler" in r.json()["detail"]
-    repo.set_state(ctl.SCHEDULER_KEY, {"desired": "stopped"}, ACTOR, NOW)
-    worker_online(repo, scheduler={"state": "running"})
-    assert post(api, "trading/mode", body).status_code == 409
-
-
+# ============================================= trading (more in test_trading_mode.py)
 @pytest.mark.parametrize("target", ["live", "LIVE", "backtest"])
 def test_live_mode_is_not_an_option(api: TestClient, target: str) -> None:
     body = {"actor": ACTOR, "reason": "go live now", "target": target, "confirm": "GO LIVE"}

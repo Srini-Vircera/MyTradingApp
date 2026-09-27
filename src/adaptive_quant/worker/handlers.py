@@ -184,34 +184,135 @@ def _research(ctx: JobContext, env: WorkerEnv, cfg: LoadedConfig, p: Any) -> Res
     return research.summarize(outcome)
 
 
+def _required_symbols(cfg: LoadedConfig) -> list[str]:
+    """Tradeable instruments plus the signal symbols of PAPER-eligible strategies."""
+    from adaptive_quant.core.enums import TradingMode
+    from adaptive_quant.quant.strategies.catalog import StrategyCatalog
+
+    s = cfg.settings
+    eligible = StrategyCatalog.from_config(s.strategies).eligible(TradingMode.PAPER)
+    return sorted({*s.universe.tradeable_symbols, *(st.signal_symbol for st in eligible)})
+
+
 def _broker_verify(ctx: JobContext, env: WorkerEnv, cfg: LoadedConfig, _p: Any) -> Result:
+    """Read-only paper-account verification and pre-flight (never submits anything).
+
+    Builds the configured adapter through the normal factory, which only knows the
+    Alpaca *paper* adapter (and that adapter refuses any host but the paper host),
+    reads the account, positions and open orders, and checks the database, the
+    stored market data, the last reconciliation and the kill-switch state.
+    """
+    from adaptive_quant.persistence.repositories import CycleRepository
     from adaptive_quant.trading.brokers.alpaca import PAPER_HOST
     from adaptive_quant.trading.brokers.factory import build_broker
+    from adaptive_quant.trading.safety.broker_checks import BrokerStateCheck, ReconciliationCheck
+    from adaptive_quant.trading.safety.db_checks import DatabaseCheck
+    from adaptive_quant.trading.safety.kill_switch_store import build_kill_switch
+    from adaptive_quant.worker.context import safe_error
 
-    ctx.progress("connecting to the broker (read-only account check)", 0.2)
-    host = urlparse(cfg.settings.broker.alpaca.paper_base_url).hostname
+    s = cfg.settings
+    host = urlparse(s.broker.alpaca.paper_base_url).hostname
+    checks: list[dict[str, Any]] = []
+
+    def check(name: str, label: str, passed: bool, detail: str) -> bool:
+        checks.append({"name": name, "label": label, "passed": bool(passed), "detail": detail})
+        return bool(passed)
+
+    ctx.progress("checking the broker configuration", 0.05)
+    check("provider", "Broker is Alpaca", s.broker.provider == "alpaca", str(s.broker.provider))
+    check(
+        "paper_endpoint", "Endpoint is the Alpaca paper environment", host == PAPER_HOST, str(host)
+    )
+    present = env.secrets.present()
+    creds = bool(present.get("ALPACA_API_KEY_ID")) and bool(present.get("ALPACA_API_SECRET_KEY"))
+    check(
+        "credentials",
+        "Credentials configured on the worker",
+        creds,
+        "present" if creds else "ALPACA_API_KEY_ID / ALPACA_API_SECRET_KEY missing",
+    )
+    account = None
+    broker = None
+    if creds and host == PAPER_HOST and s.broker.provider == "alpaca":
+        ctx.progress("authenticating with the Alpaca paper account (read-only)", 0.2)
+        try:
+            broker = build_broker(cfg, env.secrets, env.clock)
+            account = broker.get_account()  # read only
+            check("authentication", "Credentials authenticate", True, "account read")
+        except Exception as exc:  # noqa: BLE001 - reported, never re-raised raw
+            check("authentication", "Credentials authenticate", False, safe_error(exc, env.secrets))
+    else:
+        check("authentication", "Credentials authenticate", False, "not attempted")
+    is_paper = bool(account is not None and account.is_paper and host == PAPER_HOST)
+    check(
+        "paper_account",
+        "Account is a paper (simulated-funds) account",
+        is_paper,
+        "paper" if is_paper else "not confirmed as a paper account",
+    )
+    if broker is not None and account is not None:
+        ctx.progress("reading positions and open orders", 0.4)
+        r = BrokerStateCheck(broker).run()
+        check(
+            "broker_connectivity",
+            "Broker account, positions and orders readable",
+            r.passed,
+            r.detail,
+        )
+    else:
+        check(
+            "broker_connectivity",
+            "Broker account, positions and orders readable",
+            False,
+            "broker not reachable",
+        )
+    r = DatabaseCheck(env.db).run()
+    check("database", "Database reachable", r.passed, r.detail)
+    ctx.progress("validating stored market data", 0.6)
+    symbols = _required_symbols(cfg)
+    data = data_service.validate(cfg, env.clock, env.calendar, symbols=symbols, require_fresh=True)
+    check(
+        "market_data",
+        "Required market data valid and fresh",
+        data.ok,
+        "; ".join(o.summary for o in data.outcomes if not o.ok) or ", ".join(symbols),
+    )
+    r = ReconciliationCheck(CycleRepository(env.db).latest_reconciliation).run()
+    check("reconciliation", "Reconciliation healthy", r.passed, r.detail)
+    engaged = None
+    try:
+        ks = build_kill_switch(cfg, env.clock, env.db).status()
+        engaged = ks.engaged
+        check(
+            "kill_switch_known",
+            "Kill-switch state readable",
+            True,
+            "ENGAGED" if ks.engaged else "released",
+        )
+    except Exception as exc:  # noqa: BLE001
+        check(
+            "kill_switch_known", "Kill-switch state readable", False, safe_error(exc, env.secrets)
+        )
+
+    from adaptive_quant.control.readiness import PREFLIGHT_CHECKS, SWITCH_CHECKS
+
+    by = {c["name"]: c["passed"] for c in checks}
     result: Result = {
-        "provider": cfg.settings.broker.provider,
+        "provider": s.broker.provider,
         "endpoint_host": host,
         "paper_endpoint": host == PAPER_HOST,
+        "is_paper": is_paper,
+        "ok": all(by.get(n) for n in SWITCH_CHECKS),
+        "preflight_ok": all(by.get(n) for n in PREFLIGHT_CHECKS),
+        "kill_switch_engaged": engaged,
+        "required_symbols": symbols,
+        "checks": checks,
         "verified_at": env.clock.now().isoformat(),
     }
-    try:
-        broker = build_broker(cfg, env.secrets, env.clock)
-        account = broker.get_account()  # read only
-        result.update(
-            ok=True,
-            is_paper=bool(account.is_paper) and host == PAPER_HOST,
-            trading_blocked=account.trading_blocked,
-            currency=account.currency,
-        )
-    except Exception as exc:  # noqa: BLE001 - any failure is reported, never re-raised raw
-        from adaptive_quant.worker.context import safe_error
-
-        result.update(ok=False, is_paper=False, error=safe_error(exc, env.secrets))
     env.repo.set_state(BROKER_KEY, result, f"worker:{ctx.worker_id}", env.clock.now())
     if not result["ok"]:
-        raise DataProviderError(f"broker verification failed: {result.get('error')}")
+        bad = [c["label"] + ": " + c["detail"] for c in checks if not c["passed"]]
+        raise DataProviderError("paper account verification failed: " + "; ".join(bad))
     return result
 
 

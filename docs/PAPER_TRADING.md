@@ -74,26 +74,25 @@ been sent. Paper and shadow can run side by side (different environments).
 
 ## Operating from the dashboard (control plane)
 
-Trading Control ([DASHBOARD.md](DASHBOARD.md), [CONTROL_PLANE.md](CONTROL_PLANE.md))
-replaces editing YAML to move between shadow and paper:
+Trading mode (SHADOW/PAPER), automation (STOPPED/RUNNING), the kill switch
+(ENGAGED/RELEASED) and the deployment master gate `AQ_SCHEDULER_ENABLED` are separate
+controls; see [CONTROL_PLANE.md](CONTROL_PLANE.md#trading-mode-automation-kill-switch-and-the-master-gate).
+No PowerShell, SSH or YAML editing is needed for normal operation:
 
-1. **Verify broker connection (read-only)** — a worker job that builds the
-   configured broker adapter (Alpaca paper only) and calls `get_account`; it
-   records whether the account is a paper account on the paper host. No order is
-   ever sent by this check.
-2. **Use paper trading (simulated funds)** — needs `ENABLE PAPER TRADING`, a
-   successful paper verification from the last 60 minutes and a stopped
-   scheduler; recorded as an audited runtime change (`trading.mode: paper`).
-   Returning to shadow needs `USE SHADOW MODE`.
-3. **Start** — needs `START PAPER TRADING` (or `START SHADOW TRADING`) and at
-   least one eligible strategy; paper additionally re-checks the verification.
-   The worker starts the cycle only if `AQ_SCHEDULER_ENABLED=true`. The kill switch
-   stays engaged until separately released.
-4. **Stop** — always accepted; no new step starts.
+1. **Approve a strategy for paper**: Strategy Manager → *Advance to paper*
+   (justification + `APPROVE PROMOTION`). Selecting PAPER mode never does this.
+2. **Select PAPER**: Settings → Trading (or Trading Control) → Trading Mode → Paper →
+   *Verify Alpaca paper account (read-only)* → *Switch to PAPER trading…* (type
+   `Switch to PAPER trading`). Automation stays stopped and the kill switch unchanged.
+3. **Review readiness** on Trading Control (✓/✗ with what to do).
+4. **Release the kill switch** when appropriate (`RE-ENABLE TRADING`).
+5. **Start Paper Trading** (`START PAPER TRADING`), then monitor.
+6. **Stop Paper Trading** at any time (always accepted; no order is transmitted after
+   it). *Switch to SHADOW mode* also stops automation first.
 
-Paper mode is shown as **PAPER TRADING — SIMULATED FUNDS** everywhere. The
-immutable trail is `control_events` + `runtime_config_changes` +
-`kill_switch_events` + the cycle/order tables.
+Paper mode is labelled **PAPER TRADING — SIMULATED FUNDS** everywhere. The immutable
+trail is `control_events` + `runtime_config_changes` + `kill_switch_events` + the
+cycle/order tables.
 
 ## Paper vs. backtest report (M13)
 

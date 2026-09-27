@@ -24,9 +24,21 @@ pytestmark = pytest.mark.postgres
 ON = {"AQ_SCHEDULER_ENABLED": "true"}
 
 
+class FakeKillSwitch:
+    def __init__(self, engaged: bool) -> None:
+        self.engaged = engaged
+
+    def is_engaged(self) -> bool:
+        return self.engaged
+
+
 class FakeDeps:
+    engaged = False
+
     def __init__(self, db: Database) -> None:
         self.db = db
+        self.kill_switch = FakeKillSwitch(FakeDeps.engaged)
+        self.transmit_guard: Any = None
 
 
 class FakeScheduler:
@@ -51,6 +63,7 @@ def base() -> LoadedConfig:
 @pytest.fixture(autouse=True)
 def fake_scheduler(monkeypatch: pytest.MonkeyPatch) -> None:
     FakeScheduler.ticks = 0
+    FakeDeps.engaged = False
     monkeypatch.setattr(sched_mod, "Scheduler", FakeScheduler)
 
 
@@ -175,3 +188,111 @@ def test_live_mode_is_refused_before_building(
     sup.step()
     assert not sup.running and sup.built == []  # type: ignore[attr-defined]
     assert "live" in sup.status.detail
+
+
+# ------------------------------------------------------------------ runtime PAPER mode
+def paper_ready(db: Database, *, verified: bool = True) -> None:
+    from adaptive_quant.control.readiness import PREFLIGHT_CHECKS, SWITCH_CHECKS
+    from adaptive_quant.control.state import BROKER_KEY
+
+    repo = ControlRepository(db)
+    repo.save_runtime_config(
+        expected_revision=0,
+        overlay={"trading.mode": "paper"},
+        strategy_overrides={},
+        actor="op",
+        now=NOW,
+        changes=[],
+        version_before="a",
+        version_after="b",
+    )
+    if verified:
+        checks = [{"name": n, "passed": True} for n in {*SWITCH_CHECKS, *PREFLIGHT_CHECKS}]
+        repo.set_state(
+            BROKER_KEY,
+            {
+                "ok": True,
+                "is_paper": True,
+                "endpoint_host": "paper-api.alpaca.markets",
+                "verified_at": NOW.isoformat(),
+                "checks": checks,
+            },
+            "worker",
+            NOW,
+        )
+    repo.set_state(SCHEDULER_KEY, {"desired": "running", "mode": "paper"}, "op", NOW)
+
+
+def test_worker_runs_in_the_persisted_paper_mode(base: LoadedConfig, db: Database) -> None:
+    paper_ready(db)
+    sup = supervisor(base, db, ON)
+    sup.step()
+    assert sup.running and sup.status.mode == "paper"
+    assert sup.built == ["paper"]  # type: ignore[attr-defined]
+    guard: Any = sup._scheduler.deps.transmit_guard  # type: ignore[union-attr]
+    assert guard() is None
+    sup.stop("end of test")
+
+
+def test_paper_automation_refused_without_verification(base: LoadedConfig, db: Database) -> None:
+    paper_ready(db, verified=False)
+    sup = supervisor(base, db, ON)
+    sup.step()
+    assert not sup.running and "verification" in sup.status.detail
+    assert sup.built == []  # type: ignore[attr-defined]
+
+
+def test_paper_automation_refused_with_kill_switch_engaged(
+    base: LoadedConfig, db: Database
+) -> None:
+    paper_ready(db)
+    FakeDeps.engaged = True
+    sup = supervisor(base, db, ON)
+    sup.step()
+    assert not sup.running and "kill switch is engaged" in sup.status.detail
+
+
+def test_start_requested_for_another_mode_is_refused(base: LoadedConfig, db: Database) -> None:
+    paper_ready(db)
+    ControlRepository(db).set_state(
+        SCHEDULER_KEY, {"desired": "running", "mode": "shadow"}, "op", NOW
+    )
+    sup = supervisor(base, db, ON)
+    sup.step()
+    assert not sup.running and "requested for shadow" in sup.status.detail
+
+
+def test_switch_to_shadow_stops_the_running_paper_scheduler(
+    base: LoadedConfig, db: Database
+) -> None:
+    paper_ready(db)
+    sup = supervisor(base, db, ON)
+    sup.step()
+    assert sup.running
+    guard: Any = sup._scheduler.deps.transmit_guard  # type: ignore[union-attr]
+    repo = ControlRepository(db)
+    repo.save_runtime_config(
+        expected_revision=1,
+        overlay={"trading.mode": "shadow"},
+        strategy_overrides={},
+        actor="op",
+        now=NOW,
+        changes=[],
+        version_before="b",
+        version_after="c",
+    )
+    reason = guard()
+    assert reason is not None and "shadow" in reason  # mid-step: transmission refused
+    sup.step()
+    assert not sup.running and "mode changed to shadow" in sup.status.detail
+
+
+def test_guard_refuses_after_the_master_gate_closes(base: LoadedConfig, db: Database) -> None:
+    from adaptive_quant.worker.scheduler import make_transmit_guard
+
+    paper_ready(db)
+    environ = dict(ON)
+    guard = make_transmit_guard(base, db, environ, "paper")
+    assert guard() is None
+    environ["AQ_SCHEDULER_ENABLED"] = "false"
+    assert guard() == "the scheduler master gate is off"

@@ -31,14 +31,14 @@ export function describeMode(banner: Banner | null | undefined): ModeView {
     case "paper":
       return {
         tone: "paper",
-        label: "PAPER TRADING",
-        detail: `Environment ${env}. Broker paper account — no real money.`,
+        label: "PAPER TRADING — SIMULATED FUNDS",
+        detail: `Environment ${env}. Orders may go only to the verified Alpaca paper account; simulated funds, no real money.`,
       };
     case "shadow":
       return {
         tone: "shadow",
-        label: "SHADOW MODE",
-        detail: `Environment ${env}. Orders are computed and recorded, never sent.`,
+        label: "SHADOW MODE — NO ORDERS SENT",
+        detail: `Environment ${env}. Orders are computed and recorded, never sent to a broker.`,
       };
     case "backtest":
       return {

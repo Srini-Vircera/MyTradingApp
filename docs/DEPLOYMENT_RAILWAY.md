@@ -175,14 +175,16 @@ Everything not listed here is in the repository.
 **Shadow mode (orders computed and recorded, never sent)**
 1. A person reviews the evidence and moves at least one strategy to `paper` (or `shadow`) in the **Strategy Manager** (justification + `APPROVE PROMOTION`; recorded in the governance ledger). Live approval is never available there.
 2. Set `AQ_SCHEDULER_ENABLED=true` on `worker` (a deliberate deployment change) with the Alpaca **paper** keys. The worker restarts; the scheduler still does not run.
-3. On **Trading Control**, press *Start shadow trading…* and type `START SHADOW TRADING`. The worker starts the cycle within ~15 s after its own checks (eligible strategies, database, single-scheduler lock).
+3. On **Trading Control**, press *Start Shadow Trading…* and type `START SHADOW TRADING`. The worker starts the cycle within ~15 s after its own checks (eligible strategies, database, single-scheduler lock).
 4. Release the kill switch (System Health or Trading Control → Re-enable trading…) once reconciliation and health look right.
 
-**Moving to Alpaca paper trading (simulated funds)**
-1. Complete the paper-readiness review ([PAPER_TRADING.md](PAPER_TRADING.md)).
-2. On **Trading Control**: *Verify broker connection (read-only)* — a worker job that only reads the account and must confirm an Alpaca **paper** account on the paper endpoint.
-3. Stop the scheduler, then *Use paper trading (simulated funds)…* and type `ENABLE PAPER TRADING` (refused unless the verification succeeded within the last hour).
-4. Start the scheduler again (`START PAPER TRADING`). The mode banner turns amber **PAPER TRADING**. Live remains impossible: there is no live broker adapter, and live mode is refused by the configuration overlay, `aq deploy check` and the broker factory.
+**Moving to Alpaca paper trading (simulated funds) — all from the browser**
+1. Complete the paper-readiness review ([PAPER_TRADING.md](PAPER_TRADING.md)) and approve at least one strategy for paper in the Strategy Manager.
+2. Settings → Trading (or Trading Control) → **Trading Mode: Paper** → *Verify Alpaca paper account (read-only)*. The worker checks the provider, the paper endpoint, the credentials, authentication, that the account is a paper account, broker and database reachability, the kill-switch state, stored market data and reconciliation. It only reads.
+3. *Switch to PAPER trading…* and type `Switch to PAPER trading` (refused, with the reasons shown, unless the verification passed within the last hour and automation is stopped). The banner turns amber **PAPER TRADING — SIMULATED FUNDS**. Automation stays stopped and the kill switch unchanged.
+4. Review the readiness checklist on Trading Control, release the kill switch when appropriate, then **Start Paper Trading** (`START PAPER TRADING`). Live remains impossible: there is no live broker adapter, and live mode is refused by the configuration overlay, `aq deploy check` and the broker factory.
+
+**What still needs Railway configuration (one time, deliberately):** the Alpaca paper keys on the worker (`ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY`), and `AQ_SCHEDULER_ENABLED=true` on the worker to allow automation at all. Everything else — data, backtests, research, strategy approval, mode, verification, kill switch, start/stop — is done in the dashboard.
 
 **Stop trading immediately**
 - In the dashboard: STOP AUTOMATED TRADING.

@@ -54,7 +54,9 @@ The locked boundaries:
 | Risk limits never loosen | risk settings are tighten-only against the reviewed YAML (`TIGHTEN RISK LIMITS`); cross-field risk validation still applies; drawdown bands and all other risk settings are locked |
 | Scheduler off by default | the deployment master gate `AQ_SCHEDULER_ENABLED` must be true **and** an operator must press Start (default stopped); the gate wins on every supervision round |
 | Kill switch independent | the scheduler switch never touches the kill switch; releasing it still needs `RE-ENABLE TRADING` |
-| Paper only with a verified paper account | shadow → paper needs a successful read-only Alpaca **paper** account check (paper host) within the last hour and a stopped scheduler |
+| Paper only with a verified paper account | shadow → paper needs a successful read-only Alpaca **paper** account verification (provider, paper host, credentials, authentication, paper account, broker/database reachability, kill-switch state) within the last hour and stopped automation |
+| Mode is not automation | selecting PAPER never starts automation, releases the kill switch or approves a strategy; starting paper automation needs the master gate, PAPER mode, a fresh verification and read-only pre-flight, the kill switch released, an approved strategy, fresh data, healthy reconciliation and no other scheduler |
+| PAPER → SHADOW fails closed | automation is stopped first; a transmit guard re-reads the persisted mode, automation switch and master gate before every order and refuses on any mismatch or error; the supervisor stops a scheduler whose mode no longer matches |
 | No secrets in the browser | the API never reads broker/provider/SMTP secrets; the dashboard sees only "configured: yes/no" |
 | No order placement from the API | the API cannot import brokers, the order manager or the trading cycle (static test); the worker's only broker call from a job is `get_account` (static test) |
 | Every action attributable | `control_events` (append-only) records accepted and refused requests with the operator's name |

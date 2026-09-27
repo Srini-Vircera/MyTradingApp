@@ -35,7 +35,7 @@ aq api openapi > apps/api/openapi.json   # regenerate the committed schema
 | Every mutation | Bearer token; strict request model (`extra="forbid"`, enums, bounded lengths and ranges; a test walks the schema of every mutation body); a named `actor`; audited in `control_events` (accepted **and** refused); readable errors without internals or secrets; rate limited per client (jobs 30/min, uploads 10/10 min, control 20/min; `kill-switch/engage` and `trading/scheduler/stop` are never limited because stopping must always work) |
 | CSRF | Not applicable by design: authentication is an explicit `Authorization` header (never a cookie), so a cross-site page cannot make an authenticated request; CORS allows only configured origins |
 | Kill-switch confirmation | `engage` needs `confirm: "STOP AUTOMATED TRADING"`; `release` needs `confirm: "RE-ENABLE TRADING"`. Both need a named `actor` and a `reason`. Unknown fields are rejected. Actions are recorded in the kill-switch audit file and `kill_switch_events` (as `api:<actor>`) |
-| Trading mode | `POST /trading/mode` switches **shadow ↔ paper only** (a `Literal` model; `live` is a 422). Paper needs a successful Alpaca **paper** account verification from the last 60 minutes and a stopped scheduler. Live mode is never available through the API (see [SAFETY.md](SAFETY.md)) |
+| Trading mode | `POST /trading/mode` switches **shadow ↔ paper only** (a `Literal` model; `live` is a 422). SHADOW → PAPER needs a successful read-only verification of the Alpaca **paper** account (every check passed, at most 60 minutes old) and stopped automation. PAPER → SHADOW never needs the broker and stops automation first (fail closed). Live mode is never available through the API (see [SAFETY.md](SAFETY.md) and [CONTROL_PLANE.md](CONTROL_PLANE.md#trading-mode-automation-kill-switch-and-the-master-gate)) |
 | Secrets | Never accepted, stored or returned. The settings page lists which credentials the *worker* has configured (booleans from its heartbeat), never values; `AQ_API_TOKEN` is not listed at all |
 | Import boundaries | The API package cannot import brokers, the order planner or manager, the trading cycle or the scheduler (static test) |
 | Responses | `Cache-Control: no-store`, `nosniff`, `X-Frame-Options: DENY`, a restrictive CSP and `Referrer-Policy: no-referrer`. The configuration is redacted. Database problems return 503 without internals |
@@ -78,7 +78,7 @@ Every page response includes a `banner` with environment, mode, `uses_real_money
 | Audit | `GET /audit/events?action=` | — |
 
 Confirmation phrases (checked exactly by the API): `START SHADOW TRADING`,
-`START PAPER TRADING`, `ENABLE PAPER TRADING`, `USE SHADOW MODE`,
+`START PAPER TRADING`, `Switch to PAPER trading`, `Switch to SHADOW mode`,
 `TIGHTEN RISK LIMITS` (any risk-limit change), `APPROVE PROMOTION` (any lifecycle
 promotion, which also needs a justification of at least 20 characters).
 

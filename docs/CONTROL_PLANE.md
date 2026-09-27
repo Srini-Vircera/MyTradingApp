@@ -113,23 +113,108 @@ time, old/new value, reason and the config versions before and after.
 * A running scheduler keeps the configuration it started with; the Trading
   Control page says when a stop/start is needed to apply newer settings.
 
-## Scheduler supervision
+## Trading mode, automation, kill switch and the master gate
 
-The trading scheduler runs inside the worker only while **both**:
+Four **separate** controls; each one can only make trading safer than the one above it:
 
-1. the deployment master gate `AQ_SCHEDULER_ENABLED` is true on the worker
-   service (the UI cannot change it; `false` stops a running scheduler within
-   one supervision round), and
-2. the audited operator switch `control_state['scheduler'].desired == "running"`
-   (default: stopped).
+| Control | Values | Where it is set | What it does |
+|---|---|---|---|
+| `AQ_SCHEDULER_ENABLED` | on / off | Railway variable on the **worker** service (deployment) | Master gate for automation. Off ⇒ automation cannot run, whatever the dashboard says. The dashboard shows it but can never change it |
+| **Trading Mode** | SHADOW / PAPER | Dashboard (Settings → Trading, or Trading Control); stored in PostgreSQL | SHADOW: strategies, signals and orders are calculated and recorded, nothing is sent. PAPER: orders may go only to the verified Alpaca **paper** account (simulated funds) |
+| **Automation** | STOPPED / RUNNING | Dashboard (Trading Control: *Start/Stop Paper Trading*); stored in PostgreSQL | Whether the worker runs the trading cycle. Default STOPPED |
+| **Kill switch** | ENGAGED / RELEASED | Dashboard or CLI (typed confirmation); stored in PostgreSQL | Blocks new risk. Fresh installs start ENGAGED |
 
-Starting builds the same dependencies as `aq trade run` (shadow/paper only,
-eligible human-promoted strategies, database-backed kill switch, paper broker
-checks) and takes the single-scheduler advisory lock. Every cycle still runs the
-kill-switch, data-freshness, broker, reconciliation, risk and pre-flight checks.
-Stopping is always accepted, is never rate limited, and fails safe: no new step
-starts; a step in progress finishes. The kill switch remains a separate,
-independent control.
+Choosing PAPER **does not** start automation, release the kill switch or approve a
+strategy. Starting automation does not change the mode. Live trading is not one of
+the modes: it stays LOCKED / NOT AVAILABLE and requires the separate, reviewed
+conditions in [SAFETY.md](SAFETY.md).
+
+The effective behaviour is the intersection of every layer:
+`deployment gates (aq deploy check, AQ_SCHEDULER_ENABLED, paper-only broker factory)`
++ `runtime mode` + `kill switch` + `automation switch` + `strategy eligibility` +
+`per-cycle pre-flight`. A dashboard setting can never override a deployment-level
+restriction.
+
+### How the mode is persisted and used
+
+* **Storage.** `runtime_config.overlay_json["trading.mode"]` (`"shadow"` or `"paper"`) in
+  PostgreSQL, with every change appended to `runtime_config_changes` and
+  `control_events`. It survives browser refreshes and restarts or redeploys of the
+  dashboard, API and worker. Without an overlay the reviewed YAML value applies
+  (`shadow` in production).
+* **Resolution.** API and worker both call `services.runtime.effective_config()`:
+  YAML + overlay, re-validated (the overlay can only hold `shadow`/`paper`; anything
+  using real money is refused), fingerprinted into a new `config_version`.
+* **Worker.** When automation starts, the supervisor builds the trading cycle from the
+  effective configuration (so a PAPER overlay produces the Alpaca paper adapter,
+  SHADOW produces shadow order recording). On every supervision round (~15 s) it
+  compares the persisted mode with the mode it started in and stops at once if they
+  differ.
+* **Transmit guard.** Before every order transmission the order manager asks a guard
+  that re-reads, from PostgreSQL, the persisted mode, the automation switch and the
+  master gate. If the mode is no longer the one automation started in, automation was
+  stopped, or anything cannot be read, the order is not sent (fail closed) — even in
+  the middle of a cycle step.
+
+### SHADOW → PAPER (*Switch to PAPER trading*)
+
+1. The operator selects **Paper**. The dashboard shows the paper-account checklist.
+2. *Verify Alpaca paper account (read-only)* queues a worker job. The worker, which
+   alone holds the credentials, checks:
+   - broker is Alpaca;
+   - the endpoint is the paper environment (`paper-api.alpaca.markets`);
+   - credentials exist and authenticate;
+   - the account reports itself as a paper account;
+   - account, positions and open orders are readable;
+   - the database is reachable;
+   - the kill-switch state is readable.
+
+   It also runs the read-only pre-flight: stored market data valid and fresh for the
+   required symbols, and the last reconciliation. The adapter only ever talks to the
+   paper host and the job only reads. Results (never credentials) are stored in
+   `control_state['broker_verification']`.
+3. *Switch to PAPER trading…* is enabled only when every switch check passed within
+   the last 60 minutes and automation is stopped. The operator types
+   `Switch to PAPER trading`. The API re-checks everything, stores the new mode and
+   audits: previous mode, requested mode, operator, time, the typed confirmation, the
+   broker-verification result and the resulting effective mode.
+
+### PAPER → SHADOW (*Switch to SHADOW mode*)
+
+Always allowed (it never needs the broker). If automation is running, it is stopped
+**first** (the transmit guard then refuses every paper order immediately), then the
+mode is stored. The worker stops the scheduler on its next round. There is no moment
+where the dashboard says SHADOW while a paper order can still be transmitted.
+
+### Start / Stop Paper Trading
+
+*Start Paper Trading* requires every item of the readiness checklist:
+
+- master gate ON;
+- worker online;
+- mode PAPER;
+- a fresh, fully passed paper-account verification and read-only pre-flight;
+- kill switch RELEASED;
+- at least one strategy approved for PAPER;
+- valid, fresh market data for the required symbols;
+- reconciliation healthy;
+- no automation already running (the single-instance lock).
+
+Failed items are listed with what to do. The worker re-checks the mode, the
+verification and the kill switch before it starts, takes the single-scheduler
+advisory lock, and every cycle runs the full pre-flight. *Stop Paper Trading* is
+always accepted and never rate limited; from that moment no order is transmitted.
+
+### Operating flow
+
+`Configure data` → `Backtest` → `Research / validate a strategy` →
+`Approve the strategy for paper (Strategy Manager)` → `Select PAPER mode` →
+`Verify the Alpaca paper account` → `Review the readiness checklist` →
+`Release the kill switch when appropriate` → `Start Paper Trading` → `Monitor` →
+`Stop Paper Trading`.
+
+Data uploads and downloads, research and backtests work the same in either mode and
+never use a broker.
 
 ## Audit
 

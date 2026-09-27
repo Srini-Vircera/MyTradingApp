@@ -37,6 +37,7 @@ from adaptive_quant.config.runtime import (
     settings_catalog,
 )
 from adaptive_quant.control import jobs as job_catalog
+from adaptive_quant.control import readiness
 from adaptive_quant.control import state as ctl
 from adaptive_quant.core.enums import StrategyLifecycle, TradingMode
 from adaptive_quant.core.errors import AQError, DatabaseUnavailableError, PersistenceError
@@ -53,7 +54,7 @@ from adaptive_quant.services.runtime import effective_config, resolve
 
 Row = dict[str, Any]
 WORKER_STALE = timedelta(minutes=2)
-PAPER_HOST = "paper-api.alpaca.markets"
+PAPER_HOST = readiness.PAPER_HOST
 
 #: every state-changing control-plane route: (method, path) -> rate-limit bucket
 #: rate-limit bucket for mutations that make things safer (never throttled)
@@ -946,6 +947,18 @@ def control_router(sv: ApiServices, auth: Any, limiter: RateLimiter) -> APIRoute
             },
             "history": repo().runtime_changes(100),
             "risk_confirm": ctl.RISK_CONFIRM,
+            "trading_mode": {
+                "active": loaded.settings.trading.mode.value,
+                "reviewed": sv.loaded.settings.trading.mode.value,
+                "options": [
+                    {"value": m, "label": m.capitalize(), "explanation": text}
+                    for m, text in readiness.MODE_EXPLANATIONS.items()
+                ],
+                "live_trading": "LOCKED / NOT AVAILABLE",
+                "note": "Changed with a guarded workflow (paper needs a verified Alpaca paper "
+                "account). Changing the mode never starts automation, releases the kill switch "
+                "or promotes a strategy.",
+            },
             "worker_note": "Settings apply to the next job. A running scheduler keeps the "
             "configuration it started with until it is stopped and started again.",
         }
@@ -1036,52 +1049,102 @@ def control_router(sv: ApiServices, auth: Any, limiter: RateLimiter) -> APIRoute
         )
 
     # ================================================================ trading
+
     def _scheduler_state() -> Row:
         st = repo().get_state(ctl.SCHEDULER_KEY)
+        value = (st or {}).get("value") or {}
         return {
             "desired": "running" if ctl.desired_running(st) else "stopped",
+            "desired_mode": value.get("mode") if isinstance(value, dict) else None,
             "updated_by": None if st is None else st["updated_by"],
             "updated_at": None if st is None else st["updated_at"],
         }
 
+    def _verification() -> Row | None:
+        v = repo().get_state(ctl.BROKER_KEY)
+        return None if v is None else dict(v["value"])
+
+    def _credentials(w: Row | None) -> bool | None:
+        creds = ((w or {}).get("status") or {}).get("credentials_configured")
+        if not isinstance(creds, dict):
+            return None
+        return bool(creds.get("ALPACA_API_KEY_ID")) and bool(creds.get("ALPACA_API_SECRET_KEY"))
+
     def _broker(loaded: LoadedConfig, w: Row | None) -> Row:
         from urllib.parse import urlparse
 
-        creds = ((w or {}).get("status") or {}).get("credentials_configured", {})
         host = urlparse(loaded.settings.broker.alpaca.paper_base_url).hostname
-        verification = repo().get_state(ctl.BROKER_KEY)
+        verification = _verification()
+        now = sv.clock.now()
         return {
             "provider": loaded.settings.broker.provider,
+            "status": readiness.broker_label(_credentials(w), verification, now),
             "identity": "Alpaca PAPER (simulated funds)" if host == PAPER_HOST else "UNKNOWN",
             "endpoint_host": host,
             "paper_endpoint": host == PAPER_HOST,
             "live_adapter_available": False,
-            "credentials_configured": bool(creds.get("ALPACA_API_KEY_ID"))
-            and bool(creds.get("ALPACA_API_SECRET_KEY")),
-            "verification": None if verification is None else verification["value"],
-            "verified_at": None if verification is None else verification["updated_at"],
+            "credentials_configured": _credentials(w),
+            "verification": verification,
+            "verification_problems": readiness.verification_problems(verification, now),
         }
 
-    def _paper_verified(broker: Row) -> tuple[bool, str]:
-        v = broker.get("verification") or {}
-        if not broker["paper_endpoint"]:
-            return False, "the broker endpoint is not the Alpaca paper endpoint"
-        if not v.get("ok") or not v.get("is_paper"):
-            return (
-                False,
-                "run 'Verify broker connection' first (it must succeed on a paper account)",
-            )
-        from datetime import datetime
+    def _kill_switch() -> tuple[Row, bool]:
+        """(status, known). Unreadable state counts as engaged and unknown."""
+        try:
+            ks = sv.kill_switch.status()
+        except Exception:  # noqa: BLE001 - fail closed
+            return {"engaged": True, "reason": "unreadable", "fail_safe": True}, False
+        known = not (ks.fail_safe and "unreadable" in ks.reason)
+        return ks.model_dump(mode="json"), known
 
-        at = v.get("verified_at")
-        if not at or sv.clock.now() - datetime.fromisoformat(str(at)) > timedelta(
-            minutes=ctl.BROKER_VERIFICATION_MAX_AGE_MINUTES
-        ):
-            return False, (
-                f"the broker verification is older than {ctl.BROKER_VERIFICATION_MAX_AGE_MINUTES} "
-                "minutes; verify again"
-            )
-        return True, "Alpaca paper account verified"
+    def _eligible(loaded: LoadedConfig, mode: TradingMode) -> list[str]:
+        catalog = StrategyCatalog.from_config(loaded.settings.strategies)
+        return [st.strategy_id for st in catalog.eligible(mode)]
+
+    def _required_symbols(loaded: LoadedConfig, mode: TradingMode) -> list[str]:
+        s = loaded.settings
+        catalog = StrategyCatalog.from_config(s.strategies)
+        strategies = catalog.eligible(mode)
+        return sorted({*s.universe.tradeable_symbols, *(st.signal_symbol for st in strategies)})
+
+    def _readiness(loaded: LoadedConfig, w: Row | None) -> list[readiness.Item]:
+        mode = loaded.settings.trading.mode
+        recon = AuditReads(repo().db).reconciliations(1)
+        ks, _known = _kill_switch()
+        return readiness.start_checklist(
+            mode=mode.value,
+            now=sv.clock.now(),
+            worker=w,
+            desired=repo().get_state(ctl.SCHEDULER_KEY),
+            kill_switch=ks,
+            eligible=_eligible(loaded, mode)
+            if mode in (TradingMode.PAPER, TradingMode.SHADOW)
+            else [],
+            required_symbols=_required_symbols(loaded, mode),
+            inventory=repo().inventory(),
+            reconciliation=recon[0] if recon else None,
+            verification=_verification(),
+        )
+
+    def _paper_switch(loaded: LoadedConfig, w: Row | None) -> Row:
+        """What must hold before SHADOW -> PAPER is accepted."""
+        verification = _verification()
+        problems = readiness.verification_problems(verification, sv.clock.now())
+        _ks, known = _kill_switch()
+        if not known:
+            problems.append("the kill-switch state cannot be read")
+        sched = _scheduler_state()
+        running = ((w or {}).get("status") or {}).get("scheduler") or {}
+        if sched["desired"] == "running" or running.get("state") == "running":
+            problems.append("stop automation before changing the trading mode")
+        if loaded.settings.broker.provider != "alpaca":
+            problems.append("the broker is not Alpaca")
+        return {
+            "allowed": not problems,
+            "problems": problems,
+            "checks": (verification or {}).get("checks", []),
+            "verified_at": (verification or {}).get("verified_at"),
+        }
 
     @r.get("/trading/control", tags=["trading"])
     def trading_control() -> Row:
@@ -1089,33 +1152,38 @@ def control_router(sv: ApiServices, auth: Any, limiter: RateLimiter) -> APIRoute
         s = loaded.settings
         w = worker_status()
         status_ = ((w or {}).get("status") or {}).get("scheduler") or {}
-        catalog = StrategyCatalog.from_config(s.strategies)
         mode = s.trading.mode
         eligible = (
-            [st.strategy_id for st in catalog.eligible(mode)]
-            if mode in (TradingMode.PAPER, TradingMode.SHADOW)
-            else []
+            _eligible(loaded, mode) if mode in (TradingMode.PAPER, TradingMode.SHADOW) else []
         )
         reads = AuditReads(repo().db)
         recon = reads.reconciliations(1)
         freshness = [
             {k: d.get(k) for k in ("source", "symbol", "adjustment", "last", "fresh", "freshness")}
             for d in repo().inventory()
-            if d.get("symbol") in ("QQQ", "TQQQ", "SQQQ")
+            if d.get("symbol") in _required_symbols(loaded, mode)
             and d.get("adjustment") == "raw"
             and not d.get("is_synthetic")
         ]
         broker = _broker(loaded, w)
-        ks = sv.kill_switch.status()
+        ks, ks_known = _kill_switch()
         gate = bool(((w or {}).get("status") or {}).get("master_gate"))
+        sched = _scheduler_state()
+        state = str(status_.get("state", "unknown"))
+        items = _readiness(loaded, w)
         return {
             "environment": s.app.environment.value,
             "mode": mode.value,
+            "mode_label": "PAPER TRADING — SIMULATED FUNDS"
+            if mode is TradingMode.PAPER
+            else "SHADOW MODE — NO ORDERS SENT",
+            "mode_explanations": readiness.MODE_EXPLANATIONS,
             "uses_real_money": mode.uses_real_money,
             "real_money_possible": False,
             "real_money_note": "This deployment cannot trade real money: live mode is refused "
             "by the configuration policy, the start-up check and the broker factory, and no "
             "live broker adapter exists in this version.",
+            "live_trading": "LOCKED / NOT AVAILABLE",
             "worker": None
             if w is None
             else {
@@ -1123,30 +1191,54 @@ def control_router(sv: ApiServices, auth: Any, limiter: RateLimiter) -> APIRoute
                 "last_seen": w.get("last_seen_at"),
                 "worker_id": w.get("worker_id"),
             },
-            "scheduler": {
-                "master_gate": gate,
-                "master_gate_note": "AQ_SCHEDULER_ENABLED on the worker service (deployment "
-                "setting; not changeable here)",
-                **_scheduler_state(),
-                "state": status_.get("state", "unknown"),
+            "automation": {
+                "label": "RUNNING" if state == "running" else "STOPPED",
+                "state": state,
+                "desired": sched["desired"],
+                "desired_mode": sched["desired_mode"],
                 "detail": status_.get("detail", "no worker status yet"),
                 "running_mode": status_.get("mode"),
                 "restart_needed": status_.get("restart_needed", False),
                 "next_wake": status_.get("next_wake"),
+                "master_gate": gate,
+                "master_gate_note": "AQ_SCHEDULER_ENABLED on the worker service (deployment "
+                "setting; not changeable here)",
+                "available": gate,
+                "unavailable_reason": None
+                if gate
+                else "Automation unavailable — deployment scheduler master gate is OFF.",
             },
-            "kill_switch": ks.model_dump(mode="json"),
+            # kept for older clients
+            "scheduler": {
+                "master_gate": gate,
+                **sched,
+                "state": state,
+                "detail": status_.get("detail", "no worker status yet"),
+                "restart_needed": status_.get("restart_needed", False),
+                "next_wake": status_.get("next_wake"),
+            },
+            "kill_switch": {
+                **ks,
+                "label": "ENGAGED" if ks.get("engaged") else "RELEASED",
+                "known": ks_known,
+            },
             "broker": broker,
             "eligible_strategies": eligible,
+            "eligible_count": len(eligible),
             "data_freshness": freshness,
             "reconciliation": recon[0] if recon else None,
             "latest_preflight": reads.latest_preflight(),
+            "start_readiness": {
+                "ready": not readiness.failed(items),
+                "items": [i.to_json() for i in items],
+            },
+            "paper_switch": _paper_switch(loaded, w),
             "confirmations": {
                 "start_shadow": ctl.START_SHADOW_CONFIRM,
                 "start_paper": ctl.START_PAPER_CONFIRM,
                 "paper_mode": ctl.PAPER_MODE_CONFIRM,
                 "shadow_mode": ctl.SHADOW_MODE_CONFIRM,
             },
-            "paper_mode_ready": _paper_verified(broker)[1],
         }
 
     @r.post("/trading/scheduler/start", response_model=MutationResult, tags=["trading"])
@@ -1162,7 +1254,7 @@ def control_router(sv: ApiServices, auth: Any, limiter: RateLimiter) -> APIRoute
                 "scheduler.start",
                 "scheduler",
                 400,
-                f"the scheduler runs in shadow or paper mode only (mode is {mode})",
+                f"automation runs in shadow or paper mode only (mode is {mode})",
             )
         if body.confirm != phrase:
             raise refuse(
@@ -1173,20 +1265,17 @@ def control_router(sv: ApiServices, auth: Any, limiter: RateLimiter) -> APIRoute
                 400,
                 f"type the confirmation phrase exactly: {phrase!r}",
             )
-        catalog = StrategyCatalog.from_config(loaded.settings.strategies)
-        if not catalog.eligible(mode):
+        missing = readiness.failed(_readiness(loaded, worker_status()))
+        if missing:
             raise refuse(
                 request,
                 body.actor,
                 "scheduler.start",
                 "scheduler",
                 409,
-                f"no strategy is eligible for {mode} mode (promote one to paper first)",
+                f"not ready to start {mode.value} automation: "
+                + "; ".join(f"{i.label}: {i.detail}" for i in missing),
             )
-        if mode is TradingMode.PAPER:
-            ok, why = _paper_verified(_broker(loaded, worker_status()))
-            if not ok:
-                raise refuse(request, body.actor, "scheduler.start", "scheduler", 409, why)
         repo().set_state(
             ctl.SCHEDULER_KEY,
             {"desired": "running", "mode": mode.value, "reason": body.reason},
@@ -1199,43 +1288,37 @@ def control_router(sv: ApiServices, auth: Any, limiter: RateLimiter) -> APIRoute
             "scheduler.start",
             "scheduler",
             "accepted",
-            {"mode": mode.value, "reason": body.reason},
-        )
-        w = worker_status()
-        gate = bool(((w or {}).get("status") or {}).get("master_gate"))
-        note = (
-            "The worker starts it within ~15 s after its own checks."
-            if gate
-            else "It will NOT run: the master gate AQ_SCHEDULER_ENABLED is off on the worker."
+            {"mode": mode.value, "reason": body.reason, "confirmation": "typed"},
         )
         return MutationResult(
             ok=True,
-            message=f"scheduler start requested ({mode.value}). {note} The kill switch, data, "
-            "broker, reconciliation and pre-flight checks still apply to every cycle.",
+            message=f"{mode.value} automation requested. The worker starts it within ~15 s "
+            "after its own checks; the kill switch, data, broker, reconciliation and "
+            "pre-flight checks still apply to every cycle.",
         )
+
+    def _stop_automation(request: Request, actor: str, reason: str) -> None:
+        repo().set_state(
+            ctl.SCHEDULER_KEY, {"desired": "stopped", "reason": reason}, actor, sv.clock.now()
+        )
+        audit(request, actor, "scheduler.stop", "scheduler", "accepted", {"reason": reason})
 
     @r.post("/trading/scheduler/stop", response_model=MutationResult, tags=["trading"])
     def scheduler_stop(body: ReasonedRequest, request: Request) -> MutationResult:
         limit(request, "POST", "/api/v1/trading/scheduler/stop")
-        repo().set_state(
-            ctl.SCHEDULER_KEY,
-            {"desired": "stopped", "reason": body.reason},
-            body.actor,
-            sv.clock.now(),
-        )
-        audit(
-            request, body.actor, "scheduler.stop", "scheduler", "accepted", {"reason": body.reason}
-        )
+        _stop_automation(request, body.actor, body.reason)
         return MutationResult(
             ok=True,
-            message="scheduler stop requested; no further cycle steps start. To block new "
-            "risk immediately, also engage the kill switch.",
+            message="automation stop requested: no new order is transmitted from now on, and "
+            "the worker stops the scheduler within ~15 s. To block new risk immediately, also "
+            "engage the kill switch.",
         )
 
     @r.post("/trading/mode", response_model=MutationResult, tags=["trading"])
     def trading_mode(body: ModeRequest, request: Request) -> MutationResult:
         limit(request, "POST", "/api/v1/trading/mode")
         before, row = effective()
+        current = before.settings.trading.mode.value
         phrase = ctl.PAPER_MODE_CONFIRM if body.target == "paper" else ctl.SHADOW_MODE_CONFIRM
         if body.confirm != phrase:
             raise refuse(
@@ -1246,30 +1329,34 @@ def control_router(sv: ApiServices, auth: Any, limiter: RateLimiter) -> APIRoute
                 400,
                 f"type the confirmation phrase exactly: {phrase!r}",
             )
-        if ctl.desired_running(repo().get_state(ctl.SCHEDULER_KEY)):
+        if body.target == current:
             raise refuse(
                 request,
                 body.actor,
                 "trading.mode",
                 body.target,
                 409,
-                "stop the scheduler before changing the trading mode",
+                f"the trading mode is already {current}",
             )
         w = worker_status()
-        running = ((w or {}).get("status") or {}).get("scheduler") or {}
-        if running.get("state") == "running":
-            raise refuse(
-                request,
-                body.actor,
-                "trading.mode",
-                body.target,
-                409,
-                "the worker still reports a running scheduler; wait until it stops",
-            )
+        verification = _verification()
+        automation_stopped = False
         if body.target == "paper":
-            ok, why = _paper_verified(_broker(before, w))
-            if not ok:
-                raise refuse(request, body.actor, "trading.mode", body.target, 409, why)
+            check = _paper_switch(before, w)
+            if not check["allowed"]:
+                raise refuse(
+                    request,
+                    body.actor,
+                    "trading.mode",
+                    body.target,
+                    409,
+                    "cannot switch to PAPER: " + "; ".join(check["problems"]),
+                )
+        elif ctl.desired_running(repo().get_state(ctl.SCHEDULER_KEY)):
+            # PAPER -> SHADOW fails closed: stop automation *first*; from this moment the
+            # worker's transmit guard refuses every paper order, even mid-step
+            _stop_automation(request, body.actor, f"switching to shadow: {body.reason}")
+            automation_stopped = True
         overlay = dict(row["overlay"])
         overlay[TRADING_MODE_PATH] = body.target
         try:
@@ -1289,7 +1376,7 @@ def control_router(sv: ApiServices, auth: Any, limiter: RateLimiter) -> APIRoute
                     {
                         "kind": "trading_mode",
                         "path": TRADING_MODE_PATH,
-                        "old": before.settings.trading.mode.value,
+                        "old": current,
                         "new": body.target,
                         "reason": body.reason,
                     }
@@ -1301,6 +1388,8 @@ def control_router(sv: ApiServices, auth: Any, limiter: RateLimiter) -> APIRoute
             raise refuse(
                 request, body.actor, "trading.mode", body.target, 409, exc.message
             ) from exc
+        effective_after, _ = effective()
+        v = verification or {}
         audit(
             request,
             body.actor,
@@ -1308,19 +1397,36 @@ def control_router(sv: ApiServices, auth: Any, limiter: RateLimiter) -> APIRoute
             body.target,
             "accepted",
             {
-                "from": before.settings.trading.mode.value,
-                "to": body.target,
+                "previous_mode": current,
+                "requested_mode": body.target,
+                "resulting_mode": effective_after.settings.trading.mode.value,
+                "confirmation": "typed",
                 "reason": body.reason,
+                "broker_verification": {
+                    "ok": v.get("ok"),
+                    "is_paper": v.get("is_paper"),
+                    "endpoint_host": v.get("endpoint_host"),
+                    "verified_at": v.get("verified_at"),
+                },
+                "automation_stopped": automation_stopped,
                 "config_version": after.config_version,
             },
         )
-        extra = (
-            " Paper mode submits orders to the Alpaca PAPER account (simulated funds) once "
-            "the scheduler is started and the kill switch is released."
-            if body.target == "paper"
-            else ""
+        if body.target == "paper":
+            msg = (
+                "Trading mode is now PAPER — SIMULATED FUNDS. Automation is still STOPPED, "
+                "the kill switch is unchanged and no strategy was promoted: start paper "
+                "trading separately when the readiness checklist is complete."
+            )
+        else:
+            msg = "Trading mode is now SHADOW — no orders are sent." + (
+                " Automation was stopped first; no paper order can be transmitted any more."
+                if automation_stopped
+                else ""
+            )
+        return MutationResult(
+            ok=True, message=msg, detail={"mode": effective_after.settings.trading.mode.value}
         )
-        return MutationResult(ok=True, message=f"trading mode is now {body.target}.{extra}")
 
     @r.get("/trading/live-readiness", tags=["trading"])
     def live_readiness() -> Row:
