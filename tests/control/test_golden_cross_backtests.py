@@ -3,8 +3,8 @@ explicit ensemble vs independent run modes. Generated data only."""
 
 from __future__ import annotations
 
-import dataclasses
 import itertools
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -154,6 +154,7 @@ def test_unknown_run_mode_is_refused(qqq_project: Path) -> None:
 def test_a_start_before_the_warm_up_begins_at_the_first_valid_signal(qqq_project: Path) -> None:
     """Asking for the first day of data starts when every strategy can first signal."""
     from tests.control.conftest import QS
+    from tests.data_helpers import calendar
 
     loaded = load_config("development", config_dir=qqq_project)
     req = backtests.BacktestRequest(
@@ -163,10 +164,27 @@ def test_a_start_before_the_warm_up_begins_at_the_first_valid_signal(qqq_project
         run_mode="independent",
     )
     outcomes = backtests.run_independent(loaded, FrozenClock(QNOW), req)
-    auto = backtests.run_independent(
-        loaded, FrozenClock(QNOW), dataclasses.replace(req, start=None)
-    )
-    assert outcomes[0].start == auto[0].start > QS  # the same warm-up-complete first session
+    # golden_death_cross needs 201 bars: the first decision is on the 202nd session
+    ready = calendar().sessions_in_range(QS, date(2017, 12, 29))[201]
+    assert [o.start for o in outcomes] == [ready.date] * 2
     assert any("before the warm-up is complete" in n for n in outcomes[0].notes)
     s = backtests.summarize(outcomes[0])
     assert s["crossover"]["golden_death_cross"]["first_signal"] <= s["period"]["start"]
+
+
+def test_an_explicit_start_the_engine_accepts_is_never_moved(qqq_project: Path) -> None:
+    """Ensemble behaviour from before run modes: a start after every strategy's warm-up
+    (even before the risk engine's own warm-up, the automatic start) is used as given."""
+    loaded = load_config("development", config_dir=qqq_project)
+    auto = backtests.run(
+        loaded, FrozenClock(QNOW), backtests.BacktestRequest(["baseline_buy_hold"], "file")
+    )
+    early = date(2016, 3, 1)
+    assert early < auto.start
+    given = backtests.run(
+        loaded,
+        FrozenClock(QNOW),
+        backtests.BacktestRequest(["baseline_buy_hold"], "file", start=early),
+    )
+    assert given.start == early
+    assert not any("warm-up" in n for n in given.notes)

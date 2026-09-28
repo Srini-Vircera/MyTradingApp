@@ -235,6 +235,9 @@ def default_range(
                 f"{s.strategy_id} needs {s.warmup_bars} bars; only {len(idx)} stored"
             )
         first_ready = max(first_ready, idx[s.warmup_bars])  # warm-up complete *before* this session
+    # earliest start the engine accepts: every strategy can signal (an explicit start
+    # before the risk engine's own warm-up has always been accepted and stays so)
+    strategies_ready = first_ready.tz_convert(MARKET_TZ).date()
     if min_history_bars:
         underlying = pd.DatetimeIndex(data.frames[UNDERLYING].index)
         if len(underlying) <= min_history_bars:
@@ -245,16 +248,17 @@ def default_range(
     auto_start = first_ready.tz_convert(MARKET_TZ).date()
     auto_end = common_last.tz_convert(MARKET_TZ).date()
     s_, e_ = start or auto_start, end or auto_end
-    if start is not None and start < auto_start:
-        # before this date no selected strategy (or the risk engine) can produce a valid
-        # signal: that history is used for warm-up only, never traded
-        s_ = auto_start
+    if start is not None and start < strategies_ready:
+        # the engine would refuse this start (a strategy has no complete warm-up yet):
+        # begin on the first session every selected strategy can signal instead; the
+        # earlier bars are used only to compute the indicators, never traded
+        s_ = strategies_ready
         if notes is not None:
             notes.append(
                 f"requested start {start} is before the warm-up is complete; the backtest "
-                f"starts on {auto_start}, the first session on which every selected strategy "
-                "(and the risk engine) can produce a valid signal - earlier bars are used "
-                "only to compute the indicators"
+                f"starts on {strategies_ready}, the first session on which every selected "
+                "strategy can produce a valid signal - earlier bars are used only to compute "
+                "the indicators"
             )
     if s_ >= e_:
         raise DataQualityError(f"empty backtest range {s_} .. {e_}")

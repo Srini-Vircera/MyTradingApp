@@ -81,9 +81,11 @@ strategy.
 ### Start date and warm-up
 
 If the requested start is earlier than the first session on which every selected
-strategy (and the risk engine) can produce a valid signal, the backtest starts on
+strategy can produce a valid signal (a start the engine would refuse), the backtest starts on
 that session and says so in its notes; earlier bars only warm up the indicators.
-(Previously such a request failed with "insufficient history".)
+(Previously such a request failed with "insufficient history".) Any start the engine
+accepted before is used exactly as given, including one before the risk engine's own
+warm-up; only when no start is given does the backtest begin after that warm-up.
 
 ### Golden/Death Cross details in results
 
