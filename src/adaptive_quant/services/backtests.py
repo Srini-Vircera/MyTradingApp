@@ -8,6 +8,20 @@ order. Results are hypothetical.
 ``summarize`` turns a finished run into a bounded JSON document (metrics per
 segment, benchmark comparison, a downsampled equity/drawdown curve) that the
 worker stores in PostgreSQL so the API can show it without the worker volume.
+
+Run modes when several strategies are selected (never blurred):
+
+* ``ensemble`` (the default and the long-standing behaviour): ONE backtest whose
+  signals are combined by the configured ensemble -> policy -> risk engine (or,
+  with the risk engine off, averaged) into one portfolio.
+* ``independent``: one backtest PER strategy, all on identical data, date range
+  (the latest warm-up of all selected strategies decides the common start),
+  starting capital, execution timing, costs and risk settings - a side-by-side
+  comparison, not a portfolio.
+
+Per-run strategy parameters (e.g. a 20/100 EMA Golden/Death Cross variant) are
+validated by the strategy registry and apply to that run only; they never change
+the configured or approved strategy.
 """
 
 from __future__ import annotations
@@ -17,7 +31,7 @@ import math
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +50,7 @@ from adaptive_quant.quant.data.calendar import TradingCalendar, nyse_calendar
 from adaptive_quant.quant.data.factory import build_store
 from adaptive_quant.quant.strategies.base import Strategy
 from adaptive_quant.quant.strategies.catalog import StrategyCatalog
+from adaptive_quant.quant.strategies.params import ParamValue
 
 Progress = Callable[[str, float | None], None]
 TRADEABLE = ("QQQ", "TQQQ", "SQQQ")
@@ -74,6 +89,12 @@ class BacktestRequest:
     use_synthetic_history: bool | None = None
     costs: dict[str, Any] = field(default_factory=dict)
     out_dir: Path | None = None
+    #: per-run parameter overrides for selected strategies (validated, never persisted)
+    strategy_params: dict[str, dict[str, ParamValue]] = field(default_factory=dict)
+    run_mode: str = "ensemble"  # ensemble | independent
+
+
+RUN_MODES = ("ensemble", "independent")
 
 
 @dataclass
@@ -87,6 +108,9 @@ class BacktestOutcome:
     config_version: str
     notes: list[str]
     unpriced: list[str]
+    #: resolved parameters of every strategy in this run
+    strategy_params: dict[str, dict[str, ParamValue]] = field(default_factory=dict)
+    implementations: dict[str, str] = field(default_factory=dict)
 
 
 def apply_overrides(loaded: LoadedConfig, req: BacktestRequest) -> tuple[LoadedConfig, list[str]]:
@@ -121,6 +145,39 @@ def apply_overrides(loaded: LoadedConfig, req: BacktestRequest) -> tuple[LoadedC
         f"{k}={v}" for k, v in shown.items()
     )
     return dataclasses.replace(loaded, settings=settings), [note]
+
+
+def apply_strategy_params(
+    loaded: LoadedConfig, req: BacktestRequest
+) -> tuple[LoadedConfig, list[str]]:
+    """Per-run parameter overrides for selected strategies, validated by the registry."""
+    if not req.strategy_params:
+        return loaded, []
+    stray = sorted(set(req.strategy_params) - set(req.strategies))
+    if stray:
+        raise ConfigurationError(f"parameters given for strategies not selected: {stray}")
+    cfg = loaded.settings.strategies
+    known = {e.id for e in cfg.strategies}
+    unknown = sorted(set(req.strategy_params) - known)
+    if unknown:
+        raise ConfigurationError(f"unknown strategies: {unknown}")
+    entries = [
+        e.model_copy(update={"params": {**e.params, **req.strategy_params[e.id]}})
+        if e.id in req.strategy_params
+        else e
+        for e in cfg.strategies
+    ]
+    new_cfg = cfg.model_copy(update={"strategies": entries})
+    StrategyCatalog.from_config(new_cfg)  # fails closed with a readable ConfigurationError
+    settings = loaded.settings.model_copy(update={"strategies": new_cfg})
+    shown = "; ".join(
+        f"{sid}: " + ", ".join(f"{k}={v}" for k, v in sorted(p.items()))
+        for sid, p in sorted(req.strategy_params.items())
+    )
+    return dataclasses.replace(loaded, settings=settings), [
+        f"per-run strategy parameters (this run only; the configured strategy is unchanged): "
+        f"{shown}"
+    ]
 
 
 def leveraged_optional(settings: Settings, strategies: Sequence[Strategy]) -> bool:
@@ -162,6 +219,7 @@ def default_range(
     start: date | None,
     end: date | None,
     min_history_bars: int = 0,
+    notes: list[str] | None = None,
 ) -> tuple[date, date]:
     tradeable = [pd.DatetimeIndex(data.frames[s].index) for s in TRADEABLE if s in data.frames]
     if not tradeable:
@@ -177,6 +235,9 @@ def default_range(
                 f"{s.strategy_id} needs {s.warmup_bars} bars; only {len(idx)} stored"
             )
         first_ready = max(first_ready, idx[s.warmup_bars])  # warm-up complete *before* this session
+    # earliest start the engine accepts: every strategy can signal (an explicit start
+    # before the risk engine's own warm-up has always been accepted and stays so)
+    strategies_ready = first_ready.tz_convert(MARKET_TZ).date()
     if min_history_bars:
         underlying = pd.DatetimeIndex(data.frames[UNDERLYING].index)
         if len(underlying) <= min_history_bars:
@@ -187,6 +248,18 @@ def default_range(
     auto_start = first_ready.tz_convert(MARKET_TZ).date()
     auto_end = common_last.tz_convert(MARKET_TZ).date()
     s_, e_ = start or auto_start, end or auto_end
+    if start is not None and start < strategies_ready:
+        # the engine would refuse this start (a strategy has no complete warm-up yet):
+        # begin on the first session every selected strategy can signal instead; the
+        # earlier bars are used only to compute the indicators, never traded
+        s_ = strategies_ready
+        if notes is not None:
+            notes.append(
+                f"requested start {start} is before the warm-up is complete; the backtest "
+                f"starts on {strategies_ready}, the first session on which every selected "
+                "strategy can produce a valid signal - earlier bars are used only to compute "
+                "the indicators"
+            )
     if s_ >= e_:
         raise DataQualityError(f"empty backtest range {s_} .. {e_}")
     if not calendar.is_session(s_):
@@ -226,7 +299,9 @@ def run(
     calendar: TradingCalendar | None = None,
     progress: Progress = _noop,
 ) -> BacktestOutcome:
-    loaded, notes = apply_overrides(loaded, req)
+    if req.run_mode == "independent":
+        raise ConfigurationError("run() is the ensemble run; use run_independent()")
+    loaded, notes = _prepare(loaded, req)
     settings = loaded.settings
     strategies = resolve_strategies(settings, req.strategies)
     source = req.source or settings.data.primary_provider
@@ -240,7 +315,7 @@ def run(
         )
     calendar = calendar or nyse_calendar()
     start, end = default_range(
-        data, strategies, calendar, req.start, req.end, risk_warmup_bars(settings)
+        data, strategies, calendar, req.start, req.end, risk_warmup_bars(settings), notes
     )
     progress(f"simulating {start} .. {end}", 0.2)
     analysed = run_backtest(
@@ -263,7 +338,90 @@ def run(
         config_version=loaded.config_version,
         notes=list(analysed.notes),
         unpriced=unpriced,
+        strategy_params={st.strategy_id: dict(st.params) for st in strategies},
+        implementations={st.strategy_id: st.implementation for st in strategies},
     )
+
+
+def _prepare(loaded: LoadedConfig, req: BacktestRequest) -> tuple[LoadedConfig, list[str]]:
+    if req.run_mode not in RUN_MODES:
+        raise ConfigurationError(f"run_mode must be one of {list(RUN_MODES)}")
+    loaded, notes = apply_overrides(loaded, req)
+    loaded, more = apply_strategy_params(loaded, req)
+    return loaded, notes + more
+
+
+def run_independent(
+    loaded: LoadedConfig,
+    clock: Clock,
+    req: BacktestRequest,
+    *,
+    calendar: TradingCalendar | None = None,
+    progress: Progress = _noop,
+) -> list[BacktestOutcome]:
+    """One backtest per selected strategy on IDENTICAL data, dates and assumptions.
+
+    The common period starts once every selected strategy (and the risk engine) is
+    warmed up, so no strategy gets a head start; the same loaded price histories,
+    starting capital, execution timing, costs and risk settings are used for all.
+    """
+    loaded, notes = _prepare(loaded, req)
+    settings = loaded.settings
+    strategies = resolve_strategies(settings, req.strategies)
+    source = req.source or settings.data.primary_provider
+    progress(f"loading {source} price history", 0.05)
+    data, unpriced = load_data(loaded, clock, source, strategies)
+    if unpriced:
+        notes.append(
+            f"no {'/'.join(unpriced)} price data loaded: every selected strategy is long-only "
+            "and capped at 1x QQQ (the engine aborts the run if an allocation ever would hold "
+            "them)"
+        )
+    calendar = calendar or nyse_calendar()
+    start, end = default_range(
+        data, strategies, calendar, req.start, req.end, risk_warmup_bars(settings), notes
+    )
+    notes.append(
+        f"independent comparison: {len(strategies)} separate backtests over the identical "
+        f"period {start} .. {end} (the latest warm-up of all selected strategies), with the "
+        "same data, starting capital, execution, costs and risk settings; this is not an "
+        "ensemble"
+    )
+    stamp = f"{clock.now().astimezone(MARKET_TZ):%Y%m%d-%H%M%S}"
+    base = loaded.resolve_path(settings.backtest.report_dir)
+    out: list[BacktestOutcome] = []
+    for n, st in enumerate(strategies):
+        progress(
+            f"simulating {st.strategy_id} ({n + 1}/{len(strategies)})",
+            0.1 + 0.8 * n / len(strategies),
+        )
+        analysed = run_backtest(
+            loaded, [st], data, calendar, start, end, unpriced=frozenset(unpriced)
+        )
+        analysed.notes[:0] = notes
+        name = re.sub(r"[^a-z0-9_+-]", "", st.strategy_id)[:80]
+        target = (req.out_dir / name) if req.out_dir else base / f"{stamp}-compare-{name}"
+        report = write_report(
+            analysed, target, f"Backtest (independent comparison): {st.strategy_id}"
+        )
+        single = dataclasses.replace(req, strategies=[st.strategy_id])
+        out.append(
+            BacktestOutcome(
+                request=single,
+                analysed=analysed,
+                report=report,
+                start=start,
+                end=end,
+                source=source,
+                config_version=loaded.config_version,
+                notes=list(analysed.notes),
+                unpriced=unpriced,
+                strategy_params={st.strategy_id: dict(st.params)},
+                implementations={st.strategy_id: st.implementation},
+            )
+        )
+    progress("comparison finished", 1.0)
+    return out
 
 
 # ================================================================== summaries
@@ -291,13 +449,95 @@ def _curve(series: pd.Series[float], points: int = MAX_CURVE_POINTS) -> pd.Serie
     return series.take(positions)
 
 
-def summarize(outcome: BacktestOutcome) -> dict[str, Any]:
+def _day(ts: datetime | pd.Timestamp) -> str:
+    return f"{pd.Timestamp(ts).tz_convert(MARKET_TZ):%Y-%m-%d}"
+
+
+CROSS_TYPES = {1: "golden", -1: "death"}
+REGIMES = {1: "bullish", -1: "bearish", 0: "neutral"}
+
+
+def crossover_details(outcome: BacktestOutcome) -> dict[str, Any]:
+    """Golden/Death Cross events, regime periods and the orders they caused.
+
+    Derived from the decisions the engine already records (each signal carries its
+    regime / cross-event values), so nothing is stored twice. Dates are the date
+    of the bar whose close revealed the cross (``data_timestamp``); orders follow
+    the configured execution timing.
+    """
+    a = outcome.analysed
+    fills: dict[int, list[Any]] = {}
+    for f in a.result.fills:
+        fills.setdefault(f.order_id, []).append(f)
+    out: dict[str, Any] = {}
+    for sid, impl in outcome.implementations.items():
+        if impl != "golden_death_cross":
+            continue
+        p = outcome.strategy_params.get(sid, {})
+        events: list[dict[str, Any]] = []
+        periods: list[dict[str, Any]] = []
+        first: str | None = None
+        for d in a.result.decisions:
+            sig = next((x for x in d.signals if x.strategy_name == sid), None)
+            if sig is None:
+                continue
+            iv = sig.indicator_values
+            first = first or _day(sig.data_timestamp)
+            regime = int(iv.get("regime") or 0)
+            if not periods or periods[-1]["regime"] != REGIMES[regime]:
+                if periods:
+                    periods[-1]["to"] = _day(sig.data_timestamp)
+                periods.append({"regime": REGIMES[regime], "from": _day(sig.data_timestamp)})
+            event = int(iv.get("cross_event") or 0)
+            if event:
+                orders = [
+                    {
+                        "date": _day(f.time),
+                        "symbol": f.symbol,
+                        "side": f.side.value,
+                        "quantity": _num(f.quantity),
+                        "price": _num(f.fill_price),
+                    }
+                    for oid in d.order_ids
+                    for f in fills.get(oid, [])
+                ]
+                events.append(
+                    {
+                        "date": _day(sig.data_timestamp),
+                        "type": CROSS_TYPES[event],
+                        "fast_ma": _num(iv.get("fast_ma")),
+                        "slow_ma": _num(iv.get("slow_ma")),
+                        "decision": _day(d.decision_time),
+                        "orders": orders,
+                        "refused": d.refused,
+                    }
+                )
+        if periods:
+            periods[-1]["to"] = None  # still current at the end of the backtest
+        fast, slow, ma = p.get("fast_period"), p.get("slow_period"), p.get("ma_type")
+        out[sid] = {
+            "fast_period": fast,
+            "slow_period": slow,
+            "ma_type": ma,
+            "bearish_action": p.get("bearish_action"),
+            "classic": (fast, slow, ma) == (50, 200, "SMA"),
+            "first_signal": first,
+            "current_regime": periods[-1]["regime"] if periods else None,
+            "golden_cross_dates": [e["date"] for e in events if e["type"] == "golden"],
+            "death_cross_dates": [e["date"] for e in events if e["type"] == "death"],
+            "events": events,
+            "regime_periods": periods,
+        }
+    return out
+
+
+def summarize(outcome: BacktestOutcome, curve_points: int = MAX_CURVE_POINTS) -> dict[str, Any]:
     """A bounded, JSON-ready summary for PostgreSQL (no paths to secrets, no raw data)."""
     a = outcome.analysed
     daily = a.result.daily
     equity = daily["equity"].astype(float)
     drawdown = equity / equity.cummax() - 1.0
-    idx = _curve(equity).index
+    idx = _curve(equity, curve_points).index
     curve: list[dict[str, Any]] = []
     bench_eq = {b.name: b.equity for b in a.benchmarks}
     for ts in idx:
@@ -359,4 +599,47 @@ def summarize(outcome: BacktestOutcome) -> dict[str, Any]:
         "metadata": dict(a.metadata),
         "notes": list(a.notes),
         "curve": curve,
+        "mode": outcome.request.run_mode,
+        "strategy_params": outcome.strategy_params,
+        "first_decision": _day(a.result.decisions[0].decision_time) if a.result.decisions else None,
+        "crossover": crossover_details(outcome),
+    }
+
+
+#: points per equity curve in an independent comparison (several curves per result)
+COMPARISON_CURVE_POINTS = 400
+
+
+def summarize_comparison(outcomes: Sequence[BacktestOutcome]) -> dict[str, Any]:
+    """Side-by-side summary of an independent comparison (identical period for all)."""
+    if not outcomes:
+        raise ValueError("no backtests to compare")
+    runs = [summarize(o, COMPARISON_CURVE_POINTS) for o in outcomes]
+    first, s0 = outcomes[0], runs[0]
+    all0 = (s0.get("metrics") or {}).get("all", {})
+    benchmarks = [{"series": name, **vals} for name, vals in all0.items() if name != "Strategy"]
+    return {
+        "mode": "independent",
+        "disclaimer": HYPOTHETICAL,
+        "strategies": [o.request.strategies[0] for o in outcomes],
+        "source": first.source,
+        "period": {"start": first.start.isoformat(), "end": first.end.isoformat()},
+        "config_version": first.config_version,
+        "initial_capital": s0["initial_capital"],
+        "ending_equity": None,
+        "headline": {},
+        "has_synthetic": any(r["has_synthetic"] for r in runs),
+        "unpriced_instruments": first.unpriced,
+        "notes": list(first.notes),
+        "comparison": [
+            {
+                "strategy": r["strategies"][0],
+                "ending_equity": r["ending_equity"],
+                **r["headline"],
+                "fills": r["fills"],
+            }
+            for r in runs
+        ],
+        "benchmarks": benchmarks,
+        "runs": runs,
     }

@@ -48,6 +48,7 @@ from adaptive_quant.persistence.repositories import ReferenceRepository
 from adaptive_quant.quant.data.bars import Frequency
 from adaptive_quant.quant.strategies.catalog import StrategyCatalog
 from adaptive_quant.quant.strategies.registry import registry
+from adaptive_quant.services import backtests as backtest_service
 from adaptive_quant.services import data as data_service
 from adaptive_quant.services import strategies as strategy_service
 from adaptive_quant.services.runtime import effective_config, resolve
@@ -361,6 +362,26 @@ def control_router(sv: ApiServices, auth: Any, limiter: RateLimiter) -> APIRoute
                 400,
                 f"not available for backtesting (unknown or disabled): {unknown}",
             )
+        if body.params.strategy_params:
+            try:
+                backtest_service.apply_strategy_params(
+                    loaded,
+                    backtest_service.BacktestRequest(
+                        strategies=list(body.params.strategies),
+                        strategy_params={
+                            k: dict(v) for k, v in body.params.strategy_params.items()
+                        },
+                    ),
+                )
+            except AQError as exc:
+                raise refuse(
+                    request,
+                    body.actor,
+                    "job.backtest.run",
+                    ",".join(body.params.strategy_params),
+                    400,
+                    f"invalid strategy parameters: {exc.message}",
+                ) from exc
         return queue(request, "backtest.run", body.params, body.actor, "/api/v1/jobs/backtest")
 
     @r.post("/jobs/research", response_model=MutationResult, tags=["jobs"])
@@ -600,6 +621,12 @@ def control_router(sv: ApiServices, auth: Any, limiter: RateLimiter) -> APIRoute
                 "signal_symbol": st.signal_symbol,
                 "long_only_1x": st.p_float("max_long_exposure") <= 1.0
                 and st.p_float("max_short_exposure") == 0.0,
+                "implementation": e.version.implementation,
+                "title": classes[e.version.implementation].title or st.strategy_id,
+                "description": classes[e.version.implementation].description,
+                "summary": classes[e.version.implementation].summary,
+                "params": dict(st.params),
+                "param_schema": strategy_service.param_schema(e.version.implementation),
             }
             for e in catalog.entries
             for st in [e.strategy]
@@ -633,6 +660,14 @@ def control_router(sv: ApiServices, auth: Any, limiter: RateLimiter) -> APIRoute
                 "half_spread_bps": bt.costs.half_spread_bps,
             },
             "executions": ["near_close", "next_open", "next_close", "closing_auction"],
+            "run_modes": {
+                "ensemble": "Combined ensemble: ONE backtest; the selected strategies' signals "
+                "are combined by the configured ensemble, allocation policy and risk engine into "
+                "one portfolio (the long-standing behaviour).",
+                "independent": "Independent comparison: one backtest PER strategy over the "
+                "identical period, data, starting capital, execution, costs and risk settings, "
+                "shown side by side. Not a portfolio.",
+            },
             "allocation": bt.allocation.model_dump(mode="json"),
             "disclaimer": "Backtests are hypothetical: simulated fills and costs on historical "
             "data. They do not show that a strategy is profitable or predict future returns.",

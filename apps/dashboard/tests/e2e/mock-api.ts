@@ -129,7 +129,25 @@ function controlFixtures(): Record<string, unknown> {
     "/api/v1/data/options": { providers: [{ name: "file", label: "Uploaded / imported files", configured: true }, { name: "polygon", label: "Polygon", configured: false }], default_provider: "file", symbols: ["QQQ", "TQQQ", "SQQQ"] },
     "/api/v1/data/uploads": { uploads: [] },
     "/api/v1/backtests/options": {
-      strategies: [{ strategy_id: "baseline_buy_hold", label: "buy and hold", long_only_1x: true }],
+      strategies: [
+        { strategy_id: "baseline_buy_hold", label: "buy and hold", long_only_1x: true, params: {}, param_schema: [] },
+        {
+          strategy_id: "golden_death_cross", implementation: "golden_death_cross", title: "Golden Cross / Death Cross", long_only_1x: true,
+          summary: "Classic moving-average trend strategy.",
+          params: { signal_symbol: "QQQ", max_long_exposure: 1, max_short_exposure: 0, fast_period: 50, slow_period: 200, ma_type: "SMA", bearish_action: "cash", reduced_exposure: 0.5 },
+          param_schema: [
+            { name: "signal_symbol", type: "str", default: "QQQ", minimum: null, maximum: null, choices: null },
+            { name: "max_long_exposure", type: "float", default: 1, minimum: 0, maximum: 3, choices: null },
+            { name: "max_short_exposure", type: "float", default: 0, minimum: 0, maximum: 3, choices: null },
+            { name: "fast_period", type: "int", default: 50, minimum: 2, maximum: 250, choices: null },
+            { name: "slow_period", type: "int", default: 200, minimum: 3, maximum: 400, choices: null },
+            { name: "ma_type", type: "str", default: "SMA", minimum: null, maximum: null, choices: ["SMA", "EMA"] },
+            { name: "bearish_action", type: "str", default: "cash", minimum: null, maximum: null, choices: ["cash", "qqq_reduced", "sqqq"] },
+            { name: "reduced_exposure", type: "float", default: 0.5, minimum: 0, maximum: 1, choices: null },
+          ],
+        },
+      ],
+      run_modes: { ensemble: "Combined ensemble", independent: "Independent comparison" },
       sources: ["file"],
       defaults: { source: "file", initial_capital: 100000, execution: "near_close", execution_delay_bars: 0, use_synthetic_history: false, costs: { commission_per_share: 0, commission_per_order: 0, commission_minimum: 0, slippage_bps: 1, impact_coefficient_bps: 5, max_participation: 0.01 } },
     },

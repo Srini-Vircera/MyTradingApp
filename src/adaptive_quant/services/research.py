@@ -163,8 +163,9 @@ def run(
         synthetic_symbols=s.data.synthetic.products.keys(),
     )
     calendar = nyse_calendar()
+    range_notes: list[str] = []
     start, end = default_range(
-        data, grid_strategies, calendar, req.start, req.end, risk_warmup_bars(s)
+        data, grid_strategies, calendar, req.start, req.end, risk_warmup_bars(s), range_notes
     )
     ctx = TrialContext(
         frames=data.frames,
@@ -191,7 +192,11 @@ def run(
         report_path=str(out / "report.html"),
         progress=lambda msg: progress(msg, None),
     )
-    result.notes[:0] = [*overrides, *(f"data {k}: {v}" for k, v in data.provenance.items())]
+    result.notes[:0] = [
+        *overrides,
+        *range_notes,
+        *(f"data {k}: {v}" for k, v in data.provenance.items()),
+    ]
     if data.missing_optional:
         result.notes.append(f"optional data unavailable: {', '.join(data.missing_optional)}")
     report = write_report(

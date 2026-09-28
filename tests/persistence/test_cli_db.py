@@ -30,7 +30,7 @@ def test_upgrade_status_and_explain(
     assert "not migrated" in capsys.readouterr().out
     assert aq(cfg, "db", "upgrade") == EXIT_OK
     out = capsys.readouterr().out
-    assert "22 strategy versions" in out
+    assert "23 strategy versions" in out
     assert aq(cfg, "db", "status") == EXIT_OK
     assert "drift     none" in capsys.readouterr().out
     seed(empty_db)

@@ -143,22 +143,34 @@ def _backtest(ctx: JobContext, env: WorkerEnv, cfg: LoadedConfig, p: Any) -> Res
         execution_delay_bars=p.execution_delay_bars,
         use_synthetic_history=p.use_synthetic_history,
         costs=dict(p.costs),
+        strategy_params={k: dict(v) for k, v in p.strategy_params.items()},
+        run_mode=p.run_mode,
     )
-    outcome = backtests.run(cfg, env.clock, req, calendar=env.calendar, progress=ctx.progress)
-    summary = backtests.summarize(outcome)
+    if req.run_mode == "independent":
+        outcomes = backtests.run_independent(
+            cfg, env.clock, req, calendar=env.calendar, progress=ctx.progress
+        )
+        summary = backtests.summarize_comparison(outcomes)
+        first = outcomes[0]
+        report = str(first.report.parent)
+    else:
+        first = backtests.run(cfg, env.clock, req, calendar=env.calendar, progress=ctx.progress)
+        summary = backtests.summarize(first)
+        report = str(first.report)
     env.repo.save_backtest(
         ctx.job_id,
         strategies=req.strategies,
-        source=outcome.source,
-        start=outcome.start,
-        end=outcome.end,
+        source=first.source,
+        start=first.start,
+        end=first.end,
         initial_capital=float(summary["initial_capital"] or 0.0),
         summary=summary,
-        report_path=str(outcome.report),
-        config_version=outcome.config_version,
+        report_path=report,
+        config_version=first.config_version,
     )
     return {
         "disclaimer": summary["disclaimer"],
+        "mode": summary["mode"],
         "period": summary["period"],
         "ending_equity": summary["ending_equity"],
         "headline": summary["headline"],

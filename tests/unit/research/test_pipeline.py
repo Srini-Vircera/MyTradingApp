@@ -144,7 +144,7 @@ def test_research_candidates_exclude_benchmarks_and_disabled() -> None:
     cands = research_candidates(all_versions)
     ids = {v.strategy_id for v in cands}
     assert "always_long_qqq" not in ids and "always_cash" not in ids
-    assert len(cands) == 20
+    assert len(cands) == 21
 
 
 def test_report_and_exports(result: ResearchResult, tmp_path: Path) -> None:

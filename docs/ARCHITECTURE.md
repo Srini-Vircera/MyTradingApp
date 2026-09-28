@@ -102,7 +102,7 @@ MyTradingApp/                      (the repo; the platform is called "adaptive-q
 │   ├── quant/
 │   │   ├── data/                  calendar, bars, providers, validation, store, synthetic  [M2]
 │   │   ├── indicators/            causal indicator functions, spec registry, engine  [M3]
-│   │   ├── strategies/            Strategy base, 22 candidates, catalogue, runner   [M4]
+│   │   ├── strategies/            Strategy base, 23 strategies, catalogue, runner   [M4]
 │   │   ├── backtest/              engine, timing, costs, Decimal ledger, allocation  [M5]
 │   │   ├── analytics/             metrics, SVG charts, HTML report + exports         [M5]
 │   │   ├── research/              trials+registry, robustness, walk-forward, Monte Carlo, DSR/PBO/RC/FDR, scorecard  [M6]

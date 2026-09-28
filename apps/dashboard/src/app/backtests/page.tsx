@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { LineChart, type Point } from "@/components/charts";
+import { ComparisonResult, SingleResult } from "@/components/BacktestResult";
+import { paramOverrides, StrategyParamsEditor, type ParamValues } from "@/components/StrategyParams";
 import {
   ActionResult,
   Field,
@@ -13,9 +14,9 @@ import {
   useOperator,
   WorkerNote,
 } from "@/components/control";
-import { DataTable, JsonView, LoadState, PageHeader, Section, Stat } from "@/components/ui";
+import { DataTable, LoadState, PageHeader, Section } from "@/components/ui";
 import { mutate, type Job, type Row } from "@/lib/api";
-import { fixed, money, money0, num, pct, text } from "@/lib/format";
+import { num, pct, text } from "@/lib/format";
 import { useApi, useMutation } from "@/lib/session";
 
 type Execution = "near_close" | "next_open" | "next_close" | "closing_auction";
@@ -49,6 +50,12 @@ function NewBacktest({ options, onQueued }: { options: Row; onQueued: (j: Job) =
   const sources = (options.sources as string[] | undefined) ?? [];
   const [actor, setActor] = useOperator();
   const [chosen, setChosen] = useState<string[]>(["baseline_buy_hold"]);
+  const [runMode, setRunMode] = useState<"ensemble" | "independent">("ensemble");
+  const [paramValues, setParamValues] = useState<Record<string, ParamValues>>({});
+  const chosenRows = chosen
+    .map((sid) => strategies.find((s) => s.strategy_id === sid))
+    .filter((s): s is Row => Boolean(s));
+  const paramResults = chosenRows.map((s) => ({ sid: String(s.strategy_id), ...paramOverrides(s, paramValues[String(s.strategy_id)] ?? {}) }));
   const [source, setSource] = useState("");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
@@ -77,6 +84,7 @@ function NewBacktest({ options, onQueued }: { options: Row; onQueued: (j: Job) =
     (capitalN === null || capitalN <= 0) && "starting capital must be a positive amount",
     (delayN === null || delayN < 0 || delayN > 20 || !Number.isInteger(delayN)) && "delay must be 0–20 sessions",
     start && end && end < start && "the end date is before the start date",
+    ...paramResults.flatMap((r) => r.problems),
     ...COSTS.map(([k, label]) => {
       const v = num(costs[k]);
       return costs[k] !== "" && (v === null || v < 0) ? `${label} must be zero or more` : false;
@@ -106,6 +114,10 @@ function NewBacktest({ options, onQueued }: { options: Row; onQueued: (j: Job) =
           execution_delay_bars: delayN === null ? null : Math.trunc(delayN),
           use_synthetic_history: synthetic,
           costs: costOverrides,
+          run_mode: chosen.length > 1 ? runMode : "ensemble",
+          strategy_params: Object.fromEntries(
+            paramResults.filter((r) => Object.keys(r.overrides).length > 0).map((r) => [r.sid, r.overrides]),
+          ),
         },
       }),
     );
@@ -130,11 +142,35 @@ function NewBacktest({ options, onQueued }: { options: Row; onQueued: (j: Job) =
                     }
                   />
                   {id}
+                  {s.title && s.title !== id ? <span className="muted small"> ({text(s.title)})</span> : null}
                 </label>
               );
             })}
           </div>
         </fieldset>
+        {chosen.length > 1 && (
+          <fieldset className="plain run-mode">
+            <legend>Run mode ({chosen.length} strategies selected)</legend>
+            <label>
+              <input type="radio" name="run-mode" value="independent" checked={runMode === "independent"} onChange={() => setRunMode("independent")} />{" "}
+              <strong>Independent comparison</strong> — one backtest per strategy over the identical period, data, capital, execution, costs and risk settings, shown side by side.
+            </label>
+            <label>
+              <input type="radio" name="run-mode" value="ensemble" checked={runMode === "ensemble"} onChange={() => setRunMode("ensemble")} />{" "}
+              <strong>Combined ensemble</strong> — ONE portfolio: the strategies&apos; signals are combined by the configured ensemble, allocation policy and risk engine (the default, unchanged behaviour).
+            </label>
+          </fieldset>
+        )}
+        {chosenRows
+          .filter((s) => ((s.param_schema as Row[] | undefined) ?? []).length > 3)
+          .map((s) => (
+            <StrategyParamsEditor
+              key={String(s.strategy_id)}
+              strategy={s}
+              values={paramValues[String(s.strategy_id)] ?? {}}
+              onChange={(v) => setParamValues((p) => ({ ...p, [String(s.strategy_id)]: v }))}
+            />
+          ))}
         <div className="form-grid">
           <OperatorField value={actor} onChange={setActor} />
           <Field label="Data source">
@@ -226,14 +262,6 @@ function RunResult({ jobId }: { jobId: string }) {
   const run = (r.data?.run ?? null) as Row | null;
   const job = (r.data?.job ?? null) as Job | null;
   const s = (run?.summary ?? null) as Row | null;
-  const headline = (s?.headline ?? {}) as Row;
-  const curve = (s?.curve as Row[] | undefined) ?? [];
-  const equity: Point[] = curve.map((p) => ({ x: String(p.date), y: num(p.equity) ?? NaN }));
-  const drawdown: Point[] = curve.map((p) => ({ x: String(p.date), y: num(p.drawdown) ?? NaN }));
-  const all = ((s?.metrics as Record<string, Record<string, Row>> | undefined)?.all ?? {}) as Record<string, Row>;
-  const compare = Object.entries(all).map(([series, v]) => ({ series, ...v }));
-  const unpriced = (s?.unpriced_instruments as string[] | undefined) ?? [];
-  const notes = (s?.notes as string[] | undefined) ?? [];
   return (
     <Section title="Result" aside={job && <JobBadge status={job.status} />}>
       <LoadState loading={r.loading && !r.data} error={r.error} />
@@ -245,56 +273,7 @@ function RunResult({ jobId }: { jobId: string }) {
       {s && (
         <>
           <Disclaimer />
-          <p>
-            {(s.strategies as string[]).join(", ")} · {text(s.source)} ·{" "}
-            {text((s.period as Row).start)} → {text((s.period as Row).end)} · config {text(s.config_version)}{" "}
-            {s.has_synthetic ? <span className="tag synthetic">INCLUDES SYNTHETIC DATA</span> : <span className="tag real">REAL DATA ONLY</span>}
-          </p>
-          {s.has_synthetic ? <SyntheticWarning /> : null}
-          {unpriced.length > 0 && (
-            <p className="muted small">
-              No {unpriced.join("/")} data was loaded; the selected strategies never hold them (the engine would stop the run if they did).
-            </p>
-          )}
-          <div className="stats">
-            <Stat label="Starting capital" value={money0(s.initial_capital)} />
-            <Stat label="Ending equity (hypothetical)" value={money0(s.ending_equity)} />
-            <Stat label="Total return" value={pct(headline.total_return)} />
-            <Stat label="CAGR" value={pct(headline.cagr)} />
-            <Stat label="Volatility" value={pct(headline.volatility)} />
-            <Stat label="Sharpe" value={fixed(headline.sharpe)} />
-            <Stat label="Sortino" value={fixed(headline.sortino)} />
-            <Stat label="Max drawdown" value={pct(headline.max_drawdown)} />
-            <Stat label="Longest drawdown" value={`${text(headline.max_drawdown_duration_sessions)} sessions`} />
-            <Stat label="Calmar" value={fixed(headline.calmar)} />
-            <Stat label="Annual turnover" value={fixed(headline.annual_turnover)} />
-            <Stat label="Trades (fills)" value={`${text(headline.trades)} (${text(s.fills)})`} />
-          </div>
-          <LineChart title="Equity (hypothetical)" points={equity} format={money} axisFormat={money0} />
-          <LineChart title="Drawdown" points={drawdown} format={(v) => pct(v)} area includeZero tone="critical" />
-          <DataTable
-            caption="Comparison with benchmarks (whole period)"
-            rows={compare}
-            columns={[
-              { key: "series", label: "Series" },
-              { key: "total_return", label: "Total return", numeric: true, render: (x) => pct(x.total_return) },
-              { key: "cagr", label: "CAGR", numeric: true, render: (x) => pct(x.cagr) },
-              { key: "volatility", label: "Volatility", numeric: true, render: (x) => pct(x.volatility) },
-              { key: "sharpe", label: "Sharpe", numeric: true, render: (x) => fixed(x.sharpe) },
-              { key: "max_drawdown", label: "Max drawdown", numeric: true, render: (x) => pct(x.max_drawdown) },
-            ]}
-          />
-          {notes.length > 0 && (
-            <details>
-              <summary>Notes</summary>
-              <ul>
-                {notes.map((n, i) => (
-                  <li key={i}>{n}</li>
-                ))}
-              </ul>
-            </details>
-          )}
-          <JsonView label="All metrics" value={s.metrics} />
+          {s.mode === "independent" ? <ComparisonResult s={s} /> : <SingleResult s={s} />}
         </>
       )}
     </Section>

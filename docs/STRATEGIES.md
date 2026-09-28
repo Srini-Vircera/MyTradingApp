@@ -33,7 +33,7 @@ Optional data (NDX) is used only when present *and* fully warmed up. Otherwise t
 
 ## Catalogue
 
-Twenty candidates plus two benchmarks, covering all 15 families:
+Twenty-one candidates plus two benchmarks, covering all 15 families:
 
 | id | family | idea (score) |
 |---|---|---|
@@ -41,6 +41,7 @@ Twenty candidates plus two benchmarks, covering all 15 families:
 | `ltt_trend_slope` | long-term trend | tanh(annualized log slope / scale); confidence = fit R² |
 | `it_ma_stack` | intermediate trend | mean vote of price vs fast, fast vs mid, mid vs slow, with a dead band against noise |
 | `st_ema_cross` | short-term trend | tanh((EMA_fast/EMA_slow − 1)/scale) |
+| `golden_death_cross` | long-term trend | **Golden Cross / Death Cross**: +1 while the fast MA is above the slow MA (bullish regime), −1 below (bearish); default 50/200 SMA. See [below](#golden-cross--death-cross-golden_death_cross) |
 | `mom_multi_horizon` | momentum | mean volatility-scaled log momentum over 5/10/20/60/120 days |
 | `mom_time_series` | momentum | 12-1 month momentum, volatility-scaled |
 | `mom_acceleration` | momentum acceleration | tanh(ΔROC/scale); halved when opposing the current move |
@@ -61,6 +62,54 @@ Twenty candidates plus two benchmarks, covering all 15 families:
 | `baseline_cash` | benchmark | always 0 |
 
 Run `aq strategies list` for versions and warm-up requirements. Each implementation's parameters (types, bounds, defaults, descriptions) are defined by its `param_specs` in code.
+
+## Golden Cross / Death Cross (`golden_death_cross`)
+
+> A **technical-analysis hypothesis**, not a proven edge. Backtests are hypothetical;
+> historical performance does not establish future profitability; parameter searches
+> can overfit; leveraged or inverse variants materially increase risk.
+
+- **Golden Cross:** the fast moving average crosses **above** the slow one.
+- **Death Cross:** the fast moving average crosses **below** the slow one.
+- **Default:** 50-session SMA / 200-session SMA — the classic configuration. Any other
+  pair, or EMA, is a *moving-average crossover variant*; reports label it VARIANT.
+
+**Event vs regime.** The strategy keeps both concepts separate:
+
+| Concept | Definition | Reported as |
+|---|---|---|
+| Regime (persistent) | `fast > slow` bullish, `fast < slow` bearish; stays until the relationship flips | `regime` (+1/−1; 0 only before the averages have ever differed) |
+| Cross event (once) | Golden: `prev fast <= prev slow` and `fast > slow`; Death: `prev fast >= prev slow` and `fast < slow`. Days of exact equality are looked through, so below → equal → above is **one** Golden Cross (on the "above" bar) and above → equal → above is **no** event | `cross_event` (+1/−1 on that bar), `last_cross`, `bars_since_cross`, and the reason text ("most recent: Golden Cross on 2019-03-25") |
+
+Staying above the slow MA never reports another Golden Cross. Signal values also carry
+`fast_ma` and `slow_ma`.
+
+**Parameters** (validated; invalid values fail closed with a clear error):
+
+| Parameter | Default | Allowed |
+|---|---|---|
+| `fast_period` | 50 | integer 2 … 250 |
+| `slow_period` | 200 | integer 3 … 400, **greater than** `fast_period` |
+| `ma_type` | `SMA` | `SMA`, `EMA` (the platform's SMA-seeded EMA, α = 2/(n+1)) |
+| `bearish_action` | `cash` | `cash`, `qqq_reduced`, `sqqq` |
+| `reduced_exposure` | 0.5 | 0 … 1 (QQQ kept in the bearish regime with `qqq_reduced`; ≤ `max_long_exposure`) |
+| `max_long_exposure` | 1.0 | common parameter: bullish exposure in × QQQ (above 1 would need TQQQ) |
+| `max_short_exposure` | 0 | common parameter: must be > 0 with `bearish_action: sqqq`, and 0 otherwise |
+
+**Exposure** is only a suggestion; the ensemble, allocation policy and risk engine
+(exposure limits, volatility targeting, drawdown bands, leveraged/inverse ETF caps,
+pre-trade gates) decide the portfolio. Defaults: bullish → 1.0 × QQQ, bearish → cash.
+Nothing defaults to TQQQ or SQQQ; an SQQQ variant must be chosen explicitly and needs
+TQQQ/SQQQ data (the backtest fails clearly if it is missing — no silent substitution).
+
+**Timing and warm-up.** Values come from the point-in-time view (bars up to the
+decision time only); the platform's execution timing then applies. No signal is
+produced until both averages are fully warmed up **and** the previous bar's averages
+exist: 201 bars for 50/200 (no partial-period averages, no back-filling).
+
+**Governance.** It starts in `research` like every strategy and follows the same
+lifecycle; selecting it, saving its parameters or promoting it never starts
+automation, releases the kill switch or grants `live_approved`.
 
 ## Configuration and governance
 

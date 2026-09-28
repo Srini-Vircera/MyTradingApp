@@ -76,8 +76,20 @@ CostOverrides = dict[
 ]
 
 
+ParamName = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")]
+ParamText = Annotated[str, Field(pattern=r"^[A-Za-z0-9_.-]{0,40}$")]
+#: per-run strategy parameter overrides: scalars only, validated by the strategy registry
+StrategyParams = dict[
+    StrategyId, Annotated[dict[ParamName, bool | int | float | ParamText], Field(max_length=20)]
+]
+
+
 class BacktestParams(JobParams):
     strategies: list[StrategyId] = Field(min_length=1, max_length=10)
+    #: ensemble = ONE combined portfolio (the long-standing behaviour); independent =
+    #: one backtest per strategy over the identical period, compared side by side
+    run_mode: Literal["ensemble", "independent"] = "ensemble"
+    strategy_params: StrategyParams = Field(default_factory=dict, max_length=10)
     source: Source | None = None
     start: date | None = None
     end: date | None = None
@@ -90,6 +102,9 @@ class BacktestParams(JobParams):
     @model_validator(mode="after")
     def _range(self) -> BacktestParams:
         _check_range(self.start, self.end)
+        stray = sorted(set(self.strategy_params) - set(self.strategies))
+        if stray:
+            raise ValueError(f"parameters given for strategies not selected: {stray}")
         return self
 
 
